@@ -179,4 +179,51 @@ GGML_VQ3_ALIGN64 static const uint16_t ggml_vq3_shuf_mult_i16[32] = {
      8, 8, 8, 8, 10,10,10,10, 12,12,12,12, 14,14,14,14
 };
 
+#if defined(__AVX512F__)
+#include <immintrin.h>
+#if defined(__GNUC__) || defined(__clang__)
+static inline __m512i ggml_vq3_loadu_si512(const void * p) {
+    __m512i r;
+    __asm__("vmovdqu64 %1, %0" : "=v"(r) : "m"(*(const uint64_t *)p));
+    return r;
+}
+#else
+#define ggml_vq3_loadu_si512(p) _mm512_loadu_si512((const __m512i *)(p))
+#endif
+#endif
+
+static inline uint64_t ggml_vq3_unpack_scales(uint32_t s24) {
+#if defined(__BMI2__) && (defined(__x86_64__) || defined(_M_X64))
+    return _pdep_u64((uint64_t)s24, 0x0707070707070707ULL) + 0x0202020202020202ULL;
+#else
+    uint64_t m_all = 0x0202020202020202ULL;
+    for (int b = 0; b < 8; ++b) {
+        m_all |= ((uint64_t)((s24 >> (3 * b)) & 0x7U)) << (8 * b);
+    }
+    return m_all;
+#endif
+}
+
+GGML_VQ3_ALIGN64 static const uint32_t ggml_vq3_shuf_mult512[16] = {
+    0x80008000, 0x80008000, 0x80018001, 0x80018001,
+    0x80028002, 0x80028002, 0x80038003, 0x80038003,
+    0x80048004, 0x80048004, 0x80058005, 0x80058005,
+    0x80068006, 0x80068006, 0x80078007, 0x80078007
+};
+
+GGML_VQ3_ALIGN64 static const uint32_t ggml_q2_lut_abs512[16] = {
+    0x0104080e, 0x0e080401, 0x0104080e, 0x0e080401,
+    0x0104080e, 0x0e080401, 0x0104080e, 0x0e080401,
+    0x0104080e, 0x0e080401, 0x0104080e, 0x0e080401,
+    0x0104080e, 0x0e080401, 0x0104080e, 0x0e080401
+};
+
+GGML_VQ3_ALIGN64 static const uint32_t ggml_q2_shift_qs[16] = {
+    0, 0, 0, 0, 2, 2, 2, 2, 4, 4, 4, 4, 6, 6, 6, 6
+};
+
+GGML_VQ3_ALIGN64 static const uint64_t ggml_q2_ror_qh[8] = {
+    62, 63, 0, 1, 2, 3, 4, 5
+};
+
 #endif // GGML_VQ3_CODEBOOK_H

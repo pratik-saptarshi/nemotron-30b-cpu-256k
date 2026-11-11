@@ -80,7 +80,7 @@ try {
                       "#if defined(__AVX2__) || defined(__AVX512F__)`r`n#ifndef _WIN32`r`n#include <sys/mman.h>"
     $c = $c -replace '(?m)^#include <unistd\.h>\r?\n\r?\nstruct llama_modchip_shm_t',
                       "#include <unistd.h>`r`n#endif`r`n`r`nstruct llama_modchip_shm_t"
-    $c = $c -replace '(?m)^(        int fd = open\("/dev/shm/llama_modchip\.bin", O_RDONLY\);.*?^        \})',
+    $c = $c -replace '(?ms)^(        int fd = open\("/dev/shm/llama_modchip\.bin", O_RDONLY\);.*?^        \})',
                       "#ifndef _WIN32`r`n`$1`r`n#endif"
     Set-Content -LiteralPath $ops -Value $c -Encoding UTF8 -NoNewline
 
@@ -185,7 +185,7 @@ static inline int mc_ctz32(unsigned int v) {
 call "$vcvars" >nul 2>&1
 set "PATH=$cudaRoot\bin;%PATH%"
 cd /d "$LlamaDir"
-cmake -B "$BuildDir" -G Ninja -DCMAKE_BUILD_TYPE=Release -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=$Arch -DGGML_NATIVE=ON -DGGML_AVX512=ON -DGGML_AVX512_VBMI=ON -DGGML_AVX512_VNNI=ON -DGGML_OPENMP=OFF -DLLAMA_CURL=OFF -DLLAMA_BUILD_TESTS=OFF -DBUILD_SHARED_LIBS=OFF
+cmake -B "$BuildDir" -G Ninja -DCMAKE_BUILD_TYPE=Release -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=$Arch -DGGML_NATIVE=ON -DGGML_AVX512=ON -DGGML_AVX512_VBMI=ON -DGGML_AVX512_VNNI=ON -DGGML_OPENMP=OFF -DLLAMA_CURL=OFF -DLLAMA_BUILD_TESTS=OFF -DBUILD_SHARED_LIBS=OFF "-DCMAKE_EXE_LINKER_FLAGS=/STACK:16777216"
 if errorlevel 1 exit /b 1
 cmake --build "$BuildDir" -j $jobs --target llama-server llama-cli llama-bench
 "@
@@ -208,7 +208,7 @@ cmake --build "$BuildDir" -j $jobs --target llama-server llama-cli llama-bench
             -DLLAMA_CURL=OFF `
             -DLLAMA_BUILD_TESTS=OFF `
             -DBUILD_SHARED_LIBS=OFF `
-            "-DCMAKE_EXE_LINKER_FLAGS=-static" `
+            "-DCMAKE_EXE_LINKER_FLAGS=-static -Wl,--stack,16777216" `
             "-DCMAKE_C_FLAGS=$winFlags" `
             "-DCMAKE_CXX_FLAGS=$winFlags"
         if ($LASTEXITCODE -ne 0) { Fail "cmake configure failed." }
