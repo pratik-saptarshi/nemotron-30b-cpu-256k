@@ -29,7 +29,8 @@ ANCHOR_MOE_LAYERS = (1, 3, 49, 51)
 
 
 def load_vq3_encoder(lib_path: str = "") -> ctypes.CDLL:
-    repo_root = Path(__file__).resolve().parent.parent
+    here = Path(__file__).resolve().parent
+    repo_root = here if (here / "vq3" / "vq3_enc_lib.c").is_file() else here.parent
     so_path = Path(lib_path) if lib_path else (repo_root / "vq3" / "libvq3_enc.so")
     c_src = repo_root / "vq3" / "vq3_enc_lib.c"
     if not so_path.is_file():
