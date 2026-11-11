@@ -154,8 +154,8 @@ To answer the most common technical question upfront—**exact bit-widths (`bpw`
 | **`Nemotron-3.5-30B-A3B-Q4_0`** | `30.2B` / `3.0B` | BF16 Official | `17.59 GiB` (`18.89 GB`) | **`4.50 bpw`** | Standard `Q4_0` across MoE + attention; `F32` norms & SSM conv/decay |
 | **`Nemotron-3.5-30B-A3B-MXFP4`** | `30.2B` / `3.0B` | BF16 Official | `15.95 GiB` (`17.13 GB`) | **`4.25 bpw`** | `GGML_TYPE_MXFP4` (`E2M1` + shared exponent) on routed MoE; `Q4_0`/`Q8_0` trunk |
 | **`Nemotron-3.5-30B-A3B-Fractal-64`** | `30.2B` / `3.0B` | BF16 Official | `14.35 GiB` (`15.41 GB`) | **`3.75 bpw`** | Attention, Mamba-2 SSM & shared experts in `Q4_0`/`Q8_0`/`F32`; cold routed MoE experts in `Fractal-64` (`Q2_0`, 30B/64W). Scores `100/100` on [`benchmarks/eval_quality_and_tools.py`](benchmarks/eval_quality_and_tools.py). |
-| **`Nemotron-3.5-30B-A3B-VQ3-64`** | `30.2B` / `3.0B` | BF16 Official | **`13.08 GiB` (`14.04 GB`)** | **`3.00 / 3.75 bpw`** | All 23 `blk.*.ffn_up_exps.weight` tensors (`14.69B` params) in **`LUT-VQ3-64` (`GGML_TYPE_VQ3_0 = 43`, `3.00 bpw`, 24B/64W)**; `blk.*.ffn_down_exps.weight` in `Fractal-64` (`3.75 bpw`). Scores **`100/100`** with `70.19%` Stockfish-PVS acceptance in `16.04 GiB` RAM. |
-| **`DeepSeek-V4-Flash-0731-VQ3`** | `284.33B` / `13.17B` | `DeepSeek-V4-Flash` | **`56.07 GiB` (`60.20 GB`)** | **`1.69 bpw`** | • **255 Active Dense/Shared-Expert Projections (`attn_q_b`, `attn_output_a`, `compressor_gate`, `ffn_gate_shexp`, `ffn_up_shexp` = `3.94B` active params/tok):** Encoded in **`LUT-VQ3-64` (`3.00 bpw`)**, accelerating raw decode by **`+16.9%` (`9.05 tok/s`)** and prefill by **`+8.8%` (`41.11 tok/s`)**<br>• **Sensitive Residual Projections (`attn_output_b`, `attn_kv`, `compressor_kv`):** Preserved in `Fractal-64` (`3.75 bpw`)<br>• **256 Routed MoE Experts:** `SwiGLU-H2` `IQ1_S` / `IQ1_M` / `IQ2_XXS`. |
+| **`Nemotron-3.5-30B-A3B-VQ3-64`** | `30.2B` / `3.0B` | BF16 Official | **`13.30 GiB` (`14.28 GB`)** | **`3.00 / 3.75 bpw`** | **Surgical Hybrid ([`scripts/build_nemotron_vq3.py`](scripts/build_nemotron_vq3.py)):** Anchor MoE layers (`blk.1, 3, 49, 51`) + all 23 `blk.*.ffn_down_exps.weight` in `Fractal-64` (`3.75 bpw`); 19 interior `blk.6..47.ffn_up_exps.weight` (pre-`ReLU²`) encoded from `BF16` into **`LUT-VQ3-64` (`GGML_TYPE_VQ3_0 = 43`, `3.00 bpw`, 24B/64W)**. Scores **`100/100`** with `70.19%` Stockfish-PVS acceptance in `16.04 GiB` RAM. |
+| **`DeepSeek-V4-Flash-0731-VQ3`** | `284.33B` / `13.17B` | `DeepSeek-V4-Flash` | **`56.45 GiB` (`60.61 GB`)** | **`1.69 bpw`** | **Surgical Hybrid ([`scripts/build_dsv4_vq3.py`](scripts/build_dsv4_vq3.py)):**<br>• **100% of MLA Attention Projections (`attn_q_b`, `attn_output_a`, `attn_output_b`, `attn_kv`, `compressor_*`):** Preserved untouched in **`Fractal-64` (`3.75 bpw`, zero double-quantization)**<br>• **68 Interior Shared-Expert Pre-`SiLU` Projections (`blk.5..38` `ffn_gate_shexp` & `ffn_up_shexp`):** Encoded in **`LUT-VQ3-64` (`3.00 bpw`)**; anchor shared experts (`blk.0..4, 39..42`) & all `ffn_down_shexp` preserved in `Q5_K`/`Q6_K`<br>• **256 Routed MoE Experts:** `SwiGLU-H2` `IQ1_S` / `IQ1_M` / `IQ2_XXS`. |
 
 > **Note on MoE Expert Routing (`Top-K`):** By default (`Lossless`), `DeepSeek-V4-Flash` evaluates **all 6 routed experts + 1 shared expert (`Top-6`)** per layer with zero expert dropping (`1.00000` logit cosine similarity vs the unpatched runtime on the same checkpoint). Setting `LLAMA_MOE_TOP_K=5` or `4` is an optional runtime flag for users who want to trade a small perplexity delta for higher decode throughput.
 
@@ -171,19 +171,26 @@ cd llama-modchip
 ```
 
 ### Direct Run (Pre-Compiled Linux `x86_64` Binary + Hugging Face `.gguf`)
-> **Compatibility Note (`GGML_TYPE_Q2_0 = 40`):** `Fractal-64` models use custom block-64 `BF16`-scale tensors (`GGML_TYPE_Q2_0`, type ID `40`) and `deepseek4` / `Stockfish-PVS` kernels. Unpatched `llama.cpp`, Ollama, or LM Studio binaries will reject them with `unknown tensor type 40`. Use `./modchip` above or the standalone pre-compiled binary (`llama-server-modchip-linux-x86_64`, zero external `.so` dependencies) included in the Hugging Face repositories and [GitHub Release `v2.4.0`](https://github.com/synchopate/llama-modchip/releases/tag/v2.4.0):
+> **Compatibility Note (`GGML_TYPE_Q2_0 = 40` & `GGML_TYPE_VQ3_0 = 43`):** `Fractal-64` and `LUT-VQ3-64` Surgical Hybrid models use custom block-64 `BF16`-scale tensors (`GGML_TYPE_Q2_0 = 40`, `GGML_TYPE_VQ3_0 = 43`) and `deepseek4` / `Stockfish-PVS` kernels. Unpatched `llama.cpp`, Ollama, or LM Studio binaries will reject them with `unknown tensor type 40/43`. Use `./modchip` above or the standalone pre-compiled binary (`llama-server-modchip-linux-x86_64`, zero external `.so` dependencies) included in the Hugging Face repositories and [GitHub Release `v2.5.0`](https://github.com/synchopate/llama-modchip/releases/tag/v2.5.0) (prebuilt static Windows `.exe` binaries are also available at [`v2.4.0-windows-cpu`](https://github.com/MR1KRAKEN/llama-modchip/releases/tag/v2.4.0-windows-cpu)):
 
 ```bash
-# 1. For 30B Nemotron-3.5-A3B (14.35 GiB — runs in 16–32 GB RAM at 25–60.4 tok/s):
+# 1A. 30B Nemotron-3.5-A3B Surgical Hybrid VQ3-64 + Fractal-64 (13.30 GiB — 16 GB RAM at 24.2–60.4 tok/s):
+hf download Synchopate/NVIDIA-Nemotron-3.5-30B-A3B-VQ3-64-CPU-GGUF \
+  llama-server-modchip-linux-x86_64 NVIDIA-Nemotron-3.5-30B-A3B-VQ3-64.gguf --local-dir .
+chmod +x llama-server-modchip-linux-x86_64
+./llama-server-modchip-linux-x86_64 -m NVIDIA-Nemotron-3.5-30B-A3B-VQ3-64.gguf -c 262144 -t 16 --port 8080
+
+# 1B. 30B Nemotron-3.5-A3B Pure Fractal-64 (14.35 GiB — 16–32 GB RAM at 25.0–60.4 tok/s):
 hf download Synchopate/NVIDIA-Nemotron-3.5-30B-A3B-Fractal-64-CPU-GGUF \
   llama-server-modchip-linux-x86_64 NVIDIA-Nemotron-3.5-30B-A3B-Fractal-64.gguf --local-dir .
-chmod +x llama-server-modchip-linux-x86_64
-./llama-server-modchip-linux-x86_64 -m NVIDIA-Nemotron-3.5-30B-A3B-Fractal-64.gguf -c 262144 -t 16 --port 8080
 
-# 2. For 284B DeepSeek-V4-Flash (56.56 GiB — fits in 64 GB RAM at 9.1–14.7 tok/s):
+# 2A. 284B DeepSeek-V4-Flash Surgical Hybrid VQ3-64 + Fractal-64 (56.45 GiB — fits in 64 GB RAM):
+hf download Synchopate/DeepSeek-V4-Flash-0731-VQ3-64GB-CPU-GGUF --local-dir ./dsv4-vq3
+chmod +x ./dsv4-vq3/llama-server-modchip-linux-x86_64
+./dsv4-vq3/llama-server-modchip-linux-x86_64 -m ./dsv4-vq3/DeepSeek-V4-Flash-0731-VQ3-00001-of-00003.gguf -c 32768 -t 16 -fa on --port 8080
+
+# 2B. 284B DeepSeek-V4-Flash Pure Fractal-64 (56.56 GiB — fits in 64 GB RAM):
 hf download Synchopate/DeepSeek-V4-Flash-0731-Fractal-64GB-CPU-GGUF --local-dir ./dsv4
-chmod +x ./dsv4/llama-server-modchip-linux-x86_64
-./dsv4/llama-server-modchip-linux-x86_64 -m ./dsv4/DeepSeek-V4-Flash-0731-Fractal-00001-of-00003.gguf -c 32768 -t 16 -fa on --port 8080
 ```
 
 ### Windows 10/11 (Hybrid GPU + CPU MoE Pack)

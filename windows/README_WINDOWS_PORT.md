@@ -12,7 +12,13 @@ check_tensor_dims: tensor 'blk.0.attn_kv.weight' has offset 596983872, expected 
 `modchip_win.ps1` remains the launcher for the *other* models (Qwen3, Nemotron Q4_0, etc.) that run on
 official binaries. For the Fractal GGUF use the flow below.
 
-## 1. Build the patched engine
+## 1. Build the patched engine (or download prebuilt `.exe` binaries)
+
+> **Prebuilt Static Windows Binaries (Zero DLLs, No MinGW Required):**
+> Statically linked `llama-server.exe`, `llama-cli.exe`, and `llama-bench.exe` (both **native AVX-512** for Zen 4/5 & Sapphire Rapids+ and **portable AVX2** for Haswell 2013+ / all AMD Zen) are available at:
+> 👉 [**`MR1KRAKEN/llama-modchip v2.4.0-windows-cpu`**](https://github.com/MR1KRAKEN/llama-modchip/releases/tag/v2.4.0-windows-cpu) *(extract into `windows\bin-modchip\`)*.
+
+To build from source with MinGW-w64:
 
 ```
 powershell -ExecutionPolicy Bypass -File windows\build_patched_engine.ps1
