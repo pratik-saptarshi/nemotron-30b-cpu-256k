@@ -1,70 +1,47 @@
-# Fractal-64 GGUF on Windows (patched engine)
+# `LUT-VQ3-64` & `Fractal-64` GGUFs on Windows (`v2.5.0` Patched Engine)
 
-**Stock Windows binaries cannot load the Fractal GGUF.** The model uses `GGML_TYPE_Q2_0` with the
-patch's 30-byte / 64-weight block, while upstream `llama.cpp` (including the official
-`llama-bXXX-bin-win-cuda-x64` zips downloaded by `modchip_win.ps1`) implements the old 18-byte block.
-Loading fails with:
+**Stock Windows binaries cannot load `Fractal-64` (`type 42`) or `LUT-VQ3-64` (`type 43`) GGUFs.**
+`Fractal-64` uses `GGML_TYPE_Q2_0 = 42` with a 30-byte / 64-weight block and `LUT-VQ3-64` uses `GGML_TYPE_VQ3_0 = 43` with a 24-byte / 64-weight 3D vector-quantized block, whereas upstream `llama.cpp` (`llama-bXXX-bin-win-cuda-x64` downloaded by `modchip_win.ps1`) only implements an older 18-byte `Q2_0` layout and rejects `type 43`. Loading with stock binaries fails with:
 
-```
+```text
 check_tensor_dims: tensor 'blk.0.attn_kv.weight' has offset 596983872, expected 596590656
 ```
 
-`modchip_win.ps1` remains the launcher for the *other* models (Qwen3, Nemotron Q4_0, etc.) that run on
-official binaries. For the Fractal GGUF use the flow below.
+`AVVIA_MODCHIP.bat` (`modchip_win.ps1`) remains the GPU+CPU hybrid launcher for standard GGUFs (`Qwen3`, `Nemotron Q4_0` / `MXFP4`, `Nemotron-H-8B`). For `Fractal-64` and `LUT-VQ3-64` checkpoints (`DeepSeek-V4-Flash 284B` and `Nemotron-3.5-30B`), use the patched engine workflow below.
 
-## 1. Build the patched engine (or download prebuilt `.exe` binaries)
+## 1. Build the `v2.5.0` patched engine
 
-> **Prebuilt Static Windows Binaries (Zero DLLs, No MinGW Required):**
-> Statically linked `llama-server.exe`, `llama-cli.exe`, and `llama-bench.exe` (both **native AVX-512** for Zen 4/5 & Sapphire Rapids+ and **portable AVX2** for Haswell 2013+ / all AMD Zen) are available at:
-> 👉 [**`MR1KRAKEN/llama-modchip v2.4.0-windows-cpu`**](https://github.com/MR1KRAKEN/llama-modchip/releases/tag/v2.4.0-windows-cpu) *(extract into `windows\bin-modchip\`)*.
+With MSYS2 MinGW-w64 UCRT64 (`gcc >= 14`), Git, CMake, and Ninja on `PATH`:
 
-To build from source with MinGW-w64:
+```powershell
+# For DeepSeek-V4-Flash 284B (VQ3-64 56.40 GiB & Fractal-64 56.57 GiB — default):
+powershell -ExecutionPolicy Bypass -File windows\build_patched_engine.ps1 -Target dsv4
 
+# For NVIDIA-Nemotron-3.5-30B-A3B (VQ3-64 13.30 GiB & Fractal-64 14.36 GiB):
+powershell -ExecutionPolicy Bypass -File windows\build_patched_engine.ps1 -Target nemotron
 ```
-powershell -ExecutionPolicy Bypass -File windows\build_patched_engine.ps1
-```
 
-Requirements: Git, CMake, Ninja, MinGW-w64 GCC >= 14 on `PATH`.
+> **Note on Prebuilt `v2.4.0` Binaries:** Community static `.exe` builds for `Fractal-64` (`type 42` only, prior to `v2.5.0` `VQ3_0 = 43` and the `54c89bf` UCRT64 AVX-512 ABI fix) are archived at [`MR1KRAKEN/llama-modchip v2.4.0-windows-cpu`](https://github.com/MR1KRAKEN/llama-modchip/releases/tag/v2.4.0-windows-cpu). For `v2.5.0` `VQ3-64` (`type 43`) models or Zen 4/5 AVX-512 hosts on Windows 11, compile directly with `windows\build_patched_engine.ps1` above.
 
-The script clones `ggml-org/llama.cpp` at `d2f8305` (the base commit for `patches/deepseek-v4-flash-fractal-256k.patch`
-and `patches/lut-vq3-64-avx512-vbmi.patch`), applies the patches, copies `speculative/cpp/rc_*.h` into `common/`, applies the four
-Windows portability fixes and writes `windows/bin-modchip/llama-server.exe` (static, no DLLs).
-
-The fixes, in short:
-
-| File | Problem | Fix |
-| :--- | :--- | :--- |
-| `ggml-cpu/ops.cpp` | `sys/mman.h` + `open("/dev/shm/...")` without a guard | `#ifndef _WIN32`; policy taken from `LLAMA_ATTN_WINDOW` / `LLAMA_ATTN_SINKS` / `LLAMA_KV_L3_WINDOW` |
-| `ggml-cpu/ggml-cpu.c` | `__thread`, `__attribute__((aligned(64)))` | `__declspec(thread)` / `__declspec(align(64))` under `_MSC_VER` |
-| `ggml-cpu/arch/x86/quants.c` | `__builtin_ctz` | `_BitScanForward` (`mc_ctz32`) on MSVC |
-| `src/llama-graph.cpp` | C global referenced from C++ | C linkage under `_MSC_VER` |
-
-`-Cuda` builds the same tree with MSVC + CUDA instead (slower for this model, see the report).
+`build_patched_engine.ps1` clones `ggml-org/llama.cpp` at `d2f83055`, applies `patches/deepseek-v4-flash-fractal-256k.patch` (or `patches/zen5-nemotron-256k-optimizations.patch`) plus `patches/lut-vq3-64-avx512-vbmi.patch` and `patches/vq3_codebook.h`, copies `speculative/cpp/rc_*.h` into `common/`, applies all Windows portability fixes (including unaligned `vmovdqu64` `.rdata` loads, Windows x64 `XMM6..XMM15` ABI safety, and `16 MB` stack size `-Wl,--stack,16777216`), and outputs static `windows\bin-modchip\llama-server.exe`, `llama-cli.exe`, and `llama-bench.exe`.
 
 ## 2. Run
 
-```
+Place the GGUF shards (`DeepSeek-V4-Flash-0731-VQ3-*.gguf` or `DeepSeek-V4-Flash-0731-Fractal-*.gguf`) in `windows\models\` and run:
+
+```bat
 windows\AVVIA_DSV4.bat
 ```
 
-Put the three `DeepSeek-V4-Flash-0731-Fractal-*.gguf` shards into `windows\models\` first.
-The launcher prints the detected hardware, writes `%TEMP%\dsv4_moe_cfg.bin`, starts an OpenAI-compatible
-server on `http://127.0.0.1:8080` (`/v1`, model name `deepseek-v4-flash`) and does not open a browser
-unless `-OpenBrowser` is passed.
+`modchip_dsv4.ps1` detects physical cores and RAM, writes `%TEMP%\dsv4_moe_cfg.bin`, and starts an OpenAI-compatible server at `http://127.0.0.1:8080/v1` (pass `-OpenBrowser` to launch the browser UI automatically).
 
-Useful flags: `-Ctx 65536`, `-Fast` (Top-K 4), `-KvType q4_0`, `-NPredict N`, `-Bench`.
+Useful flags for `windows\modchip_dsv4.ps1`: `-Ctx 65536`, `-Fast` (`Top-4` $L_2$-quadrature pruning), `-KvType q4_0`, `-NPredict N`, `-Bench`.
+`windows\make_shortcuts.ps1` generates desktop shortcuts for context presets from `32K` up to `1M`.
 
-`make_shortcuts.ps1` creates desktop shortcuts for every context preset (32K … 1M) in fast/exact variants.
+## 3. Key constraints
 
-## 3. Things that bite
+- `deepseek4` / MLA requires matching K and V KV-cache types (`-ctk q8_0 -ctv q8_0` or `-ctk q4_0 -ctv q4_0`; mixed `-ctk q8_0 -ctv q4_0` is rejected).
+- Never export `DSV4_MOE_TOPK` or `LLAMA_MOE_TOP_K` in the environment when loading `DeepSeek-V4-Flash`; control Top-K pruning strictly via `%TEMP%\dsv4_moe_cfg.bin` (`-Fast`).
+- Raise HTTP client stream idle timeouts above 300 s for multi-thousand-token cold prompts on 8-core CPUs.
 
-* `deepseek4` / MLA requires equal K and V cache types: `-ctk q8_0 -ctv q4_0` is rejected.
-* Do **not** export `DSV4_MOE_TOPK` / `LLAMA_MOE_TOP_K`: during load the patch derives the
-  `ffn_gate_tid2eid` shape from that value and the model aborts
-  (`expected 4, 129280, got 6, 129280`). Top-K pruning goes through `%TEMP%\dsv4_moe_cfg.bin` only.
-* Prefill is ~15-18 tok/s, so a 6 000-token prompt waits ~5 minutes before the first token.
-  Raise client idle timeouts.
-* The model degenerates into repetition loops on open-ended tasks; sampling penalties reduce but do not
-  cure it. See the report.
-
-Measured performance, GPU analysis and the full list of pitfalls: [`docs/WINDOWS_PORT.md`](../docs/WINDOWS_PORT.md).
+Full engineering report and Ryzen 7 9800X3D benchmarks: [`docs/WINDOWS_PORT.md`](../docs/WINDOWS_PORT.md).

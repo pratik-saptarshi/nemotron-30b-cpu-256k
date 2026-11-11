@@ -1,4 +1,4 @@
-# 📊 Baseline Dense-Attention MoE KV Cache Scaling & Latency Benchmark Report
+# Baseline Dense-Attention MoE KV Cache Scaling & Latency Benchmark Report
 
 **Target Hardware**: AMD Ryzen 9 9955HX (16C/32T, Dual-CCD Zen 5, 64 MB L3, DDR5-5600)  
 **Baseline Model**: `Qwen3-30B-A3B` (Quantization: `Q4_K_M`, 48 Dense GQA Layers, 32Q / 4KV Heads, Active Params: 3.3B)  
@@ -65,6 +65,6 @@ graph LR
 ```
 
 1. **Tier 1 — Immutable Prefix Caching & HARP (`/dev/shm`)**: Keeping system instructions and tool schemas bit-exact at the start of the context window and enabling `--cache-reuse 256` eliminates redundant prefill compute across multi-turn agentic workflows.
-2. **Tier 2 — Transition from Dense GQA to Hybrid SSM-MoE**: Replacing 75%–88% of full GQA attention layers with linear $O(1)$ State-Space layers (`Qwen 3.5 MoE` with 30 Delta-SSM + 10 GQA layers, and ultimately `NVIDIA Nemotron 3.5 Lightning 30B-A3B` with 46 Mamba-2 + 6 GQA layers) shrinks the KV cache footprint by **10x to 18x**.
+2. **Tier 2 — Transition from Dense GQA to Hybrid SSM-MoE**: Replacing 75%–88.5% of full GQA attention blocks with $O(1)$-memory non-attention blocks (`Qwen 3.5 MoE` with 30 Delta-SSM + 10 GQA layers, and `NVIDIA Nemotron 3.5 Lightning 30B-A3B` with 23 Mamba-2 SSM + 23 Sparse MoE + 6 GQA layers) shrinks the KV cache footprint by **10x to 18x**.
 3. **Tier 3 — L3 Sliding Window Attention & `_MM_HINT_NTA` Bypass**: Bounding active attention to a 4,096-token window + 16 attention sinks keeps the KV working set (<6.5 MB) 100% resident in the 64 MB L3 cache while bypassing L3 allocation on cold KV reads and streamed MoE weights.
 4. **Tier 4 — Dual-CCD Physical Core Pinning & 2MB HugePages**: Binding 16 OpenMP threads 1:1 to physical Zen 5 cores (`0-15`, `OMP_PROC_BIND=close`) and backing the 19 GB weight arena with 2MB Transparent HugePages (`MADV_HUGEPAGE`) eliminates cross-CCD migrations and L2 STLB page-walk stalls.

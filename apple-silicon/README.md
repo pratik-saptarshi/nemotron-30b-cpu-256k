@@ -21,12 +21,12 @@ offset 899308800, expected 779574528`. Build the patched engine instead:
 BUILD_TESTS=1 ./apple-silicon/setup.sh      # BUILD_TESTS=1 also builds test-quantize-fns and test-backend-ops
 ```
 
-`scripts/build_zen5_llama.sh` applies `patches/zen5-nemotron-256k-optimizations.patch` and, on macOS, the patches in
+`scripts/build_zen5_llama.sh` applies `patches/zen5-nemotron-256k-optimizations.patch`, `patches/lut-vq3-64-avx512-vbmi.patch` (`GGML_TYPE_VQ3_0 = 43` with portable C fallback), and, on macOS, the patches in
 `patches/nemotron-apple-silicon/`: a faster single-row (decode) `Q2_0` Metal kernel (a 4-thread block layout
-plus a 512-byte threadgroup pair-lookup table for the codebook), the `Q2_0` block size in
+plus a 512-byte threadgroup pair-lookup table for the codebook, [PR #24](https://github.com/synchopate/llama-modchip/pull/24)), the `Q2_0` block size in
 `gguf-py`, and tighter `Q2_0` tests (including a random-block dot product test that also covers the armv8.0 NEON
 branch when built with `-DGGML_NATIVE=OFF -DGGML_CPU_ARM_ARCH=armv8-a`, and `test-backend-ops` cases with random
-raw `Q2_0` blocks). On other systems these patches are not applied, so a Linux build is unchanged; set
+raw `Q2_0` blocks). Note that on Apple Silicon Macs, prefer the `Fractal-64` (`Q2_0 = 42`) GGUFs over `LUT-VQ3-64` (`VQ3_0 = 43`), as `Q2_0` runs natively on Metal whereas `VQ3_0` targets x86-64 AVX-512 VBMI CPUs. On other systems these macOS patches are not applied, so a Linux build is unchanged; set
 `APPLE_SILICON_PATCHES=1` to apply them anyway or `=0` to leave them out on a Mac. If an earlier run was interrupted and left only part of the series
 applied, the script stops without changing anything; `RESET_LLAMA_TREE=1` discards the uncommitted changes in the
 llama.cpp clone and applies everything again. The patch files have no mail

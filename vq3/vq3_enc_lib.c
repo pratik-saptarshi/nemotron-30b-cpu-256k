@@ -1,3 +1,8 @@
+/*
+ * Self-contained OpenMP AVX-512 LUT-VQ3-64 (GGML_TYPE_VQ3_0 = 43) encoder & transcoder shared library.
+ * Build:
+ *   gcc -O3 -march=native -mavx512f -mf16c -fopenmp -shared -fPIC vq3/vq3_enc_lib.c -lm -o vq3/libvq3_enc.so
+ */
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -5,7 +10,7 @@
 #include <math.h>
 #include <omp.h>
 #include <immintrin.h>
-#include "/opt/models/deepseek-v4/lcc/vq3/vq3_codebook.h"
+#include "vq3_codebook.h"
 
 #define QK_VQ3_0 64
 typedef uint16_t ggml_half;
@@ -261,9 +266,84 @@ void transcode_q2_0_to_vq3_0_omp(const void * src_q2_0, void * dst_vq3, int64_t 
     }
 }
 
-extern void dequantize_row_q2_0(const void * restrict x, float * restrict y, int64_t k);
-extern void dequantize_row_q5_K(const void * restrict x, float * restrict y, int64_t k);
-extern void dequantize_row_q6_K(const void * restrict x, float * restrict y, int64_t k);
+typedef struct {
+    ggml_half d;
+    ggml_half dmin;
+    uint8_t scales[12];
+    uint8_t qh[32];
+    uint8_t qs[128];
+} block_q5_K_local;
+
+typedef struct {
+    uint8_t ql[128];
+    uint8_t qh[64];
+    int8_t  scales[16];
+    ggml_half d;
+} block_q6_K_local;
+
+static inline void get_scale_min_k4_local(int j, const uint8_t * restrict q, uint8_t * restrict d, uint8_t * restrict m) {
+    if (j < 4) {
+        *d = q[j] & 63;
+        *m = q[j + 4] & 63;
+    } else {
+        *d = (q[j + 4] & 0xF) | ((q[j - 4] >> 6) << 4);
+        *m = (q[j + 4] >>  4) | ((q[j - 0] >> 6) << 4);
+    }
+}
+
+static void dequantize_row_q5_K_local(const block_q5_K_local * restrict x, float * restrict y, int64_t k) {
+    const int64_t nb = k / 256;
+    for (int64_t i = 0; i < nb; i++) {
+        const uint8_t * ql = x[i].qs;
+        const uint8_t * qh = x[i].qh;
+        const float d = fp16_to_fp32(x[i].d);
+        const float min = fp16_to_fp32(x[i].dmin);
+        int is = 0;
+        uint8_t sc, m;
+        uint8_t u1 = 1, u2 = 2;
+        for (int j = 0; j < 256; j += 64) {
+            get_scale_min_k4_local(is + 0, x[i].scales, &sc, &m);
+            const float d1 = d * sc;
+            const float m1 = min * m;
+            get_scale_min_k4_local(is + 1, x[i].scales, &sc, &m);
+            const float d2 = d * sc;
+            const float m2 = min * m;
+            for (int l = 0; l < 32; ++l) *y++ = d1 * ((ql[l] & 0xF) + (qh[l] & u1 ? 16 : 0)) - m1;
+            for (int l = 0; l < 32; ++l) *y++ = d2 * ((ql[l]  >> 4) + (qh[l] & u2 ? 16 : 0)) - m2;
+            ql += 32;
+            is += 2;
+            u1 <<= 2;
+            u2 <<= 2;
+        }
+    }
+}
+
+static void dequantize_row_q6_K_local(const block_q6_K_local * restrict x, float * restrict y, int64_t k) {
+    const int64_t nb = k / 256;
+    for (int64_t i = 0; i < nb; i++) {
+        const float d = fp16_to_fp32(x[i].d);
+        const uint8_t * restrict ql = x[i].ql;
+        const uint8_t * restrict qh = x[i].qh;
+        const int8_t  * restrict sc = x[i].scales;
+        for (int n = 0; n < 256; n += 128) {
+            for (int l = 0; l < 32; ++l) {
+                int is = l / 16;
+                const int8_t q1 = (int8_t)((ql[l +  0] & 0xF) | (((qh[l] >> 0) & 3) << 4)) - 32;
+                const int8_t q2 = (int8_t)((ql[l + 32] & 0xF) | (((qh[l] >> 2) & 3) << 4)) - 32;
+                const int8_t q3 = (int8_t)((ql[l +  0]  >> 4) | (((qh[l] >> 4) & 3) << 4)) - 32;
+                const int8_t q4 = (int8_t)((ql[l + 32]  >> 4) | (((qh[l] >> 6) & 3) << 4)) - 32;
+                y[l +  0] = d * sc[is + 0] * q1;
+                y[l + 32] = d * sc[is + 2] * q2;
+                y[l + 64] = d * sc[is + 4] * q3;
+                y[l + 96] = d * sc[is + 6] * q4;
+            }
+            y  += 128;
+            ql += 64;
+            qh += 32;
+            sc += 8;
+        }
+    }
+}
 
 void transcode_any_to_vq3_0_omp(const void * src, int orig_type, void * dst_vq3, int64_t nrow, int64_t ncol) {
     init_vq3_enc_tables();
@@ -282,9 +362,9 @@ void transcode_any_to_vq3_0_omp(const void * src, int orig_type, void * dst_vq3,
         #pragma omp for schedule(static)
         for (int64_t r = 0; r < nrow; ++r) {
             const void * sr = x + (size_t)r * row_bytes_in;
-            if (orig_type == 42) dequantize_row_q2_0(sr, row_f32, ncol);
-            else if (orig_type == 13) dequantize_row_q5_K(sr, row_f32, ncol);
-            else if (orig_type == 14) dequantize_row_q6_K(sr, row_f32, ncol);
+            if (orig_type == 42) dequantize_row_q2_0_local((const block_q2_0 *)sr, row_f32, ncol);
+            else if (orig_type == 13) dequantize_row_q5_K_local((const block_q5_K_local *)sr, row_f32, ncol);
+            else if (orig_type == 14) dequantize_row_q6_K_local((const block_q6_K_local *)sr, row_f32, ncol);
             quantize_row_vq3_0_fast(row_f32, y + r * nblk_out, ncol);
         }
         free(row_f32);

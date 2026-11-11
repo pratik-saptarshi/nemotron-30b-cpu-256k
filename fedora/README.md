@@ -8,7 +8,7 @@ The script uses:
 - the same llama.cpp version as the Mac test (tag `b10809`, commit `5266f24da`), built from source with
   the native CPU backend (AVX-512) and the Vulkan backend (Radeon 780M),
 - the same model file (`NVIDIA-Nemotron-3.5-Lightning-30B-A3B-Q4_0.gguf` from `ggml-org`, SHA-256 checked),
-- stock llama.cpp (6 of 6 experts per token).
+- stock llama.cpp (6 of 6 experts per token). For the custom `Fractal-64` (`type 42`) or `LUT-VQ3-64` (`type 43`) checkpoints, build the patched engine from the repository root via `../scripts/build_zen5_llama.sh` (or `../modchip setup`) instead.
 
 ## Quick start
 

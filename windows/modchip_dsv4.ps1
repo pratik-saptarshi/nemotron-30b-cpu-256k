@@ -52,7 +52,7 @@ function Find-Server {
     foreach ($c in $candidates) {
         if (Test-Path $c) { return (Resolve-Path $c).Path }
     }
-    throw "llama-server.exe not found. Put the patched build into $ModBinDir or run: windows\BUILD_MODCHIP.bat"
+    throw "llama-server.exe not found. Put the patched build into $ModBinDir or run: powershell -ExecutionPolicy Bypass -File windows\build_patched_engine.ps1"
 }
 
 function Find-Model {
@@ -134,7 +134,7 @@ $modelInfo = Get-Item -LiteralPath $modelPath
 $modelGB = [math]::Round($modelInfo.Length / 1GB, 2)
 $patched = $exe -like "*bin-modchip*" -or $exe -like "*build-mingw*"
 
-Write-Head "llama-modchip v2.4.0 -- DeepSeek-V4-Flash Fractal on Windows (GPU + CPU hybrid)"
+Write-Head "llama-modchip v2.5.0 -- DeepSeek-V4-Flash (VQ3-64 / Fractal-64) on Windows"
 
 if ($Threads -le 0) { $Threads = [math]::Max(1, $hw.PhysCores) }
 
@@ -153,7 +153,7 @@ if ($modelInfo.Name -match "-00001-of-(\d+)\.gguf$") {
 $totalGB = [math]::Round($totalBytes / 1GB, 2)
 
 Write-Host ("  Engine    : {0}" -f $exe)
-Write-Host ("  Patched   : {0}" -f $(if ($patched) { "yes (Q2_0 fractal + MoE pruning + n-gram spec)" } else { "NO - stock build will reject Q2_0 tensors" }))
+Write-Host ("  Patched   : {0}" -f $(if ($patched) { "yes (Q2_0 Fractal-64 + VQ3_0 LUT-VQ3-64 + MoE pruning)" } else { "NO - stock build will reject Q2_0 (42) / VQ3_0 (43) tensors" }))
 Write-Host ("  Model     : {0}" -f $modelInfo.Name)
 Write-Host ("  Model size: {0} GB total ({1} shards)" -f $totalGB, $shards.Count)
 Write-Host ("  CPU       : {0} ({1} physical cores / {2} threads)" -f $hw.CpuName, $hw.PhysCores, $hw.LogCores)
@@ -162,8 +162,9 @@ Write-Host ("  RAM       : {0} GB total, {1} GB free" -f $hw.RamTotalGB, $hw.Ram
 
 if (-not $patched) {
     Write-Host ""
-    Write-Host "  [!] This is the stock llama.cpp build: it cannot read Q2_0 (fractal) tensors." -ForegroundColor Yellow
-    Write-Host "      Run windows\BUILD_MODCHIP.bat first, or pass -Server <path to patched llama-server.exe>." -ForegroundColor Yellow
+    Write-Host "  [!] This is the stock llama.cpp build: it cannot read Q2_0 (42) or VQ3_0 (43) tensors." -ForegroundColor Yellow
+    Write-Host "      Run: powershell -ExecutionPolicy Bypass -File windows\build_patched_engine.ps1" -ForegroundColor Yellow
+    Write-Host "      or pass -Server <path to patched llama-server.exe>." -ForegroundColor Yellow
 }
 
 # RAM guard: the weights are memory mapped, but KV cache + compute buffers are real allocations
@@ -242,7 +243,7 @@ if ($NGpuLayers -gt 0) {
         $NCpuMoe = $totalLayers - [int]$moeOnGpu
     }
     $srvArgs += @("-ngl", "$NGpuLayers", "--n-cpu-moe", "$NCpuMoe")
-    $srvArgs += @("-ot", "blk\.\d+\.attn_(kv|q_b|output_a|output_b)\.weight=CPU")
+    $srvArgs += @("-ot", "blk\.\d+\.(attn_.*|indexer.*|ffn_(gate|up)_shexp)\.weight=CPU")
 }
 
 if ($Bench) {

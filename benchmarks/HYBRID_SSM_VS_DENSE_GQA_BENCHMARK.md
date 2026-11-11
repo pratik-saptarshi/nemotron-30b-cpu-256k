@@ -1,4 +1,4 @@
-# 🥊 Head-to-Head Architectural Benchmark: Hybrid Delta-Gated SSM MoE (`Qwen 3.5`) vs. Pure Dense-GQA MoE (`Qwen3-30B-A3B`)
+# Architectural Benchmark: Hybrid Delta-Gated SSM MoE (`Qwen 3.5`) vs. Pure Dense-GQA MoE (`Qwen3-30B-A3B`)
 
 **Target Hardware**: AMD Ryzen 9 9955HX (16C/32T, Dual-CCD Zen 5, 64 MB L3, DDR5-5600)  
 **Benchmark Date**: October 2026  
@@ -8,7 +8,7 @@
 
 ## 1. Architectural Comparison (Generation 1 vs. Generation 2 MoE)
 
-Before transitioning to the Generation 3 `NVIDIA Nemotron 3.5 Lightning 30B-A3B` (46 Mamba-2 + 6 GQA layers), a controlled head-to-head benchmark was conducted comparing a pure dense-attention MoE (**Generation 1: `Qwen3-30B-A3B`**) against a 3:1 hybrid Delta-Gated SSM MoE (**Generation 2: `Qwen 3.5 MoE 36B-A3B`**).
+Before transitioning to the Generation 3 `NVIDIA Nemotron 3.5 Lightning 30B-A3B` (`52` blocks: `23` Mamba-2 SSM + `23` Sparse MoE + `6` GQA layers, i.e. `46` non-attention blocks), a controlled benchmark was conducted comparing a pure dense-attention MoE (**Generation 1: `Qwen3-30B-A3B`**) against a 3:1 hybrid Delta-Gated SSM MoE (**Generation 2: `Qwen 3.5 MoE 36B-A3B`**).
 
 | Architectural Specification | **Generation 1: `Qwen3-30B-A3B` (Pure GQA MoE)** | **Generation 2: `Qwen 3.5 MoE 36B-A3B` (3:1 Hybrid SSM)** | Structural Impact |
 | :--- | :--- | :--- | :--- |
@@ -29,10 +29,10 @@ Both models were evaluated on the exact same Linux kernel C source code corpus (
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | **~350 tokens** | 1.21 s | 1.85 s | 257 tok/s | 188 tok/s | 32.5 tok/s | 19.5 tok/s | 0.7x *(Pure GQA faster at micro-context)* |
 | **~1,200 tokens** | 7.33 s | 6.50 s | 149 tok/s | 190 tok/s | 24.9 tok/s | 17.9 tok/s | **1.1x faster** |
-| **~5,000 tokens** | 74.44 s | **32.54 s** | 62 tok/s | **156 tok/s** | 12.7 tok/s | **18.1 tok/s** | **2.3x faster** 🚀 |
-| **~9,500 tokens** | 257.05 s *(4.3 min)* | **82.98 s** *(1.4 min)* | 35 tok/s | **118 tok/s** | 9.9 tok/s | **14.8 tok/s** | **3.1x faster** 🚀 |
-| **~14,500 tokens** | 546.12 s *(9.1 min)* | **153.82 s** *(2.5 min)* | 25 tok/s | **95 tok/s** | 5.9 tok/s | **14.2 tok/s** | **3.6x faster** 🚀 |
-| **~19,500 tokens** | **TIMEOUT (>10 min)** | **247.94 s** *(4.1 min)* | <20 tok/s | **78.6 tok/s** | ~4.5 tok/s | **11.4 tok/s** | **Scales past the 16K cliff** 👑 |
+| **~5,000 tokens** | 74.44 s | **32.54 s** | 62 tok/s | **156 tok/s** | 12.7 tok/s | **18.1 tok/s** | **2.3x faster** |
+| **~9,500 tokens** | 257.05 s *(4.3 min)* | **82.98 s** *(1.4 min)* | 35 tok/s | **118 tok/s** | 9.9 tok/s | **14.8 tok/s** | **3.1x faster** |
+| **~14,500 tokens** | 546.12 s *(9.1 min)* | **153.82 s** *(2.5 min)* | 25 tok/s | **95 tok/s** | 5.9 tok/s | **14.2 tok/s** | **3.6x faster** |
+| **~19,500 tokens** | **TIMEOUT (>10 min)** | **247.94 s** *(4.1 min)* | <20 tok/s | **78.6 tok/s** | ~4.5 tok/s | **11.4 tok/s** | **Scales past 16K** |
 
 ---
 
@@ -78,4 +78,4 @@ Model Reasoning Trace (completed in 13.1s at 19.0 tok/s):
 
 While `Qwen 3.5 MoE` (30 SSM + 10 GQA layers, 20 KV heads) successfully broke the 16K context wall—delivering **3.6x faster prefill** and **2.4x faster decoding** at 14.5K tokens—its 10 GQA layers still consume **2.88 KB/token** (~720 MB at 256K context) and exhibit gradual $O(N^2)$ prefill decay above 32K tokens (`190 tok/s` $\rightarrow$ `78.6 tok/s` at 19.5K).
 
-Transitioning to **Generation 3 — `NVIDIA Nemotron 3.5 Lightning 30B-A3B`** (46 Mamba-2 SSM + **only 6 GQA layers**, 12 KV heads total) and adding **L3 Sliding Window Attention + `_MM_HINT_NTA` bypass** reduces the KV footprint by another **1.87x** (down to **1.536–1.728 KB/token**, or **6.31 MB active SWA**), unlocking **flat 170–306.8 tok/s prefill** and **30–50+ tok/s generation** all the way to **262,144 tokens (256K)**.
+Transitioning to **Generation 3 — `NVIDIA Nemotron 3.5 Lightning 30B-A3B`** (`23` Mamba-2 SSM + `23` Sparse MoE + **`6` GQA layers**, 12 KV heads total) and adding **L3 Sliding Window Attention + `_MM_HINT_NTA` bypass** reduces the KV footprint by another **1.87x** (down to **1.536–1.728 KB/token**, or **6.31 MB active SWA**), enabling **170–306.8 tok/s prefill** and **25–60.4 tok/s generation** up to **262,144 tokens (256K)**.

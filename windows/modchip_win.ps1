@@ -22,7 +22,7 @@ if (-not (Test-Path $ModelDir)) { New-Item -ItemType Directory -Path $ModelDir |
 function Write-Banner {
     Clear-Host
     Write-Host "================================================================================" -ForegroundColor Cyan
-    Write-Host "  llama-modchip v2.4.0 -- Windows Hybrid GPU + CPU MoE Edition" -ForegroundColor Green
+    Write-Host "  llama-modchip v2.5.0 -- Windows Hybrid GPU + CPU MoE Edition" -ForegroundColor Green
     Write-Host "  Ottimizzato per NVIDIA RTX / AMD Vulkan (8-16 GB VRAM) + CPU (16-128 GB RAM)" -ForegroundColor White
     Write-Host "================================================================================" -ForegroundColor Cyan
 }
@@ -136,7 +136,7 @@ function Ensure-LlamaBinaries($hw) {
     }
 
     Write-Host "`n[*] Prima esecuzione: scarico il motore llama.cpp ufficiale con accelerazione GPU..." -ForegroundColor Green
-    $headers = @{ "User-Agent" = "llama-modchip-windows/2.3" }
+    $headers = @{ "User-Agent" = "llama-modchip-windows/2.5.0" }
     $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=5" -Headers $headers
 
     $chosenRel = $null
@@ -432,6 +432,13 @@ if ($helpOut -match "--load-mode") {
     $loadModeArgs = @("--no-mmap")
 }
 
+$specArgs = @("--spec-type", "ngram-simple")
+if ($helpOut -match "--spec-ngram-size-n") {
+    $specArgs += @("--spec-ngram-size-n", "3", "--spec-ngram-size-m", "5", "--draft-max", "6")
+} elseif ($helpOut -match "--spec-ngram-simple-size-n") {
+    $specArgs += @("--spec-ngram-simple-size-n", "3", "--spec-ngram-simple-size-m", "5")
+}
+
 $serverArgs = @(
     "-m", $modelPath,
     "--host", "127.0.0.1",
@@ -445,11 +452,8 @@ $serverArgs = @(
     "-t", "$($hw.PhysCores)",
     "-b", "2048",
     "-ub", "512",
-    "--cache-reuse", "256",
-    "--spec-type", "ngram-simple",
-    "--spec-ngram-size-n", "3",
-    "--spec-ngram-size-m", "5",
-    "--draft-max", "6",
+    "--cache-reuse", "256"
+) + $specArgs + @(
     "--reasoning-format", "deepseek"
 )
 
@@ -457,9 +461,9 @@ if ($nCpuMoe -gt 0) {
     $serverArgs += @("--n-cpu-moe", "$nCpuMoe")
 }
 
-# Configura il controllo MoE runtime L2-quadrature (%TEMP%\dsv4_moe_cfg.bin + variabili ambiente)
+# Configura il controllo MoE runtime L2-quadrature (%TEMP%\dsv4_moe_cfg.bin + LLAMA_MOE_TOP_K per Qwen/Nemotron; NON esportare DSV4_MOE_TOPK)
+Remove-Item Env:DSV4_MOE_TOPK -ErrorAction SilentlyContinue
 if ($MoeTopK -lt 6 -or $MoeMinW -gt 0.0) {
-    $env:DSV4_MOE_TOPK = "$MoeTopK"
     $env:DSV4_MOE_MIN_W = "$MoeMinW"
     $env:LLAMA_MOE_TOP_K = "$MoeTopK"
 }
@@ -493,8 +497,9 @@ Write-Host "====================================================================
 Write-Host ("  - Modello attivo     : {0}" -f $selectedModel.FileName) -ForegroundColor White
 Write-Host ("  - Contesto attivo    : {0} token (KV Cache quantizzata Q8_0/Q4_0 + Flash-Attn)" -f $ctxSize) -ForegroundColor White
 if ($selectedModel.TotalMoe -gt 0) {
+    $lmLabel = if ($loadModeArgs.Count -gt 0) { $loadModeArgs -join " " } else { "mmap" }
     Write-Host ("  - Tensor-Role Split  : Backbone + {0}/{1} layer MoE su GPU ({2})" -f $gpuMoeCount, $selectedModel.TotalMoe, $hw.GpuName) -ForegroundColor Cyan
-    Write-Host ("                         {0}/{1} layer MoE su CPU RAM (~{2} GB con --no-mmap)" -f $nCpuMoe, $selectedModel.TotalMoe, $estCpuRamGB) -ForegroundColor Cyan
+    Write-Host ("                         {0}/{1} layer MoE su CPU RAM (~{2} GB con {3})" -f $nCpuMoe, $selectedModel.TotalMoe, $estCpuRamGB, $lmLabel) -ForegroundColor Cyan
 } else {
     Write-Host ("  - Offload GPU        : 100% su {0} (-ngl 99, 0 GB RAM di sistema)" -f $hw.GpuName) -ForegroundColor Cyan
 }

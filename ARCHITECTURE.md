@@ -2,8 +2,8 @@
 
 **Breaking the DDR5 Bandwidth Wall and Quadratic Attention Trap on Dual-CCD AMD Zen 5 via Hybrid Mamba-2 SSM, Bidirectional L3 Non-Temporal Streaming, Draftless Linear Speculative Decoding (`RouteCrack`), AVX-512 VNNI Tile Repacking, 2MB HugePages, and External Cognitive Memory**
 
-*Author: Paolo C | Date: October 2026*
-*Navigation: [⬅️ Back to Overview & Quickstart (`README.md`)](README.md) · [➡️ Engineering FAQ & Xeon/EPYC Scaling (`FAQ.md`)](FAQ.md)*
+*Author: Paolo C | Date: October–November 2026*
+*Navigation: [Back to Overview & Quickstart (`README.md`)](README.md) · [Engineering FAQ & Xeon/EPYC Scaling (`FAQ.md`)](FAQ.md) · [LUT-VQ3-64 Quality Gate (`benchmarks/QUALITY_GATE_VQ3_64.md`)](benchmarks/QUALITY_GATE_VQ3_64.md)*
 
 ---
 
@@ -74,22 +74,22 @@ To break the KV cache bottleneck without sacrificing model capacity, a 3-way arc
 
 1. **Generation 1 — Pure Dense-Attention MoE (`Qwen3-30B-A3B`)**: 48 layers, 100% GQA attention (4 KV heads/layer = 192 total KV heads).
 2. **Generation 2 — 3:1 Delta-Gated SSM Hybrid (`Qwen 3.5 MoE 36B-A3B`)**: 40 layers total $\rightarrow$ 30 linear Gated-DeltaNet SSM layers + 10 full GQA attention layers (`full_attn_interval = 4`, 2 KV heads/layer = 20 total KV heads).
-3. **Generation 3 — Extreme 88.5% Mamba-2 SSM Hybrid (`NVIDIA Nemotron 3.5 Lightning 30B-A3B`)**: 52 layers total $\rightarrow$ **46 Mamba-2 State-Space layers** + **only 6 GQA Attention layers** (2 KV heads/layer = **12 total KV heads** across the entire 30B model!).
+3. **Generation 3 — 88.5% Non-Attention Hybrid (`NVIDIA Nemotron 3.5 Lightning 30B-A3B`)**: 52 blocks total $\rightarrow$ **23 Mamba-2 State-Space layers + 23 Sparse MoE FFN layers** (`46` non-attention blocks with $O(1)$ sequence memory) + **only 6 GQA Attention layers** (2 KV heads/layer = **12 total KV heads** across the entire 30B model).
 
 ### 2.1. Quantitative KV Cache Architecture Comparison
 
-| Architectural Parameter | `Qwen3-30B-A3B` (Pure GQA MoE) | `Qwen 3.5 36B-A3B` (Delta-SSM Hybrid) | `Nemotron 3.5 30B-A3B` (Mamba-2 Hybrid) ⚡ |
+| Architectural Parameter | `Qwen3-30B-A3B` (Pure GQA MoE) | `Qwen 3.5 36B-A3B` (Delta-SSM Hybrid) | `Nemotron 3.5 30B-A3B` (Mamba-2 + MoE Hybrid) |
 | :--- | :---: | :---: | :---: |
 | **Total / Active Parameters** | 30.5B / 3.3B | 36.0B / 3.4B | **30.2B / 3.0B** |
-| **Total Layers** | 48 | 40 | **52** |
-| **Linear / Recurrent SSM Layers ($O(1)$ State)** | 0 (0%) | 30 (75%) | **46 (88.5%)** |
+| **Total Blocks** | 48 | 40 | **52** |
+| **Non-Attention Blocks ($O(1)$ Sequence State)** | 0 (0%) | 30 (75%) | **46 (88.5%: 23 SSM + 23 MoE)** |
 | **Full GQA Attention Layers ($O(N)$ KV)** | 48 (100%) | 10 (25%) | **6 (11.5%)** |
 | **Total KV Heads Across Model** | 192 heads | 20 heads | **12 heads** |
 | **KV Payload per Token (Raw 4-bit / `block_q4_0`)** | 24.58 KB / 27.65 KB | 2.56 KB / 2.88 KB | **1.536 KB / 1.728 KB** |
-| **KV Cache @ 32,768 Tokens** | 884.7 MB | 92.2 MB | **49.1 – 55.3 MB** *(Fits in 64MB L3!)* |
+| **KV Cache @ 32,768 Tokens** | 884.7 MB | 92.2 MB | **49.1 – 55.3 MB** *(Fits in 64MB L3)* |
 | **KV Cache @ 262,144 Tokens (256K)** | 7,077.9 MB | 737.3 MB | **384.0 – 432.0 MB** |
 
-Because **Mamba-2 layers compress arbitrarily long history into a fixed-size recurrent state tensor** (`conv1d` cache + SSM state matrix $h_t = A_t h_{t-1} + B_t x_t$), 46 of the 52 layers in Nemotron 3.5 consume **zero additional memory** whether the prompt is 100 tokens or 256,000 tokens. Only 12 KV heads exist in the entire model.
+Because **Mamba-2 layers compress sequence history into a fixed-size recurrent state tensor** (`conv1d` cache + SSM state matrix $h_t = A_t h_{t-1} + B_t x_t$, `~18.4 MB` total across the 23 Mamba-2 layers) and the 23 Sparse MoE blocks are stateless across tokens, 46 of the 52 blocks in Nemotron 3.5 allocate **zero growing KV memory** whether the prompt is 100 tokens or 256,000 tokens. Only 12 KV heads exist in the entire model.
 
 ---
 
@@ -126,7 +126,7 @@ When initially pushing Nemotron 3.5 from 4K to 28K tokens using full dense atten
 - Slice 5 ($19.5\text{K} \rightarrow 28.2\text{K}$): **45.0 tok/s**
 
 **Exact Full-Context Default vs. Opt-In Approximate SWA**:
-While the 46 Mamba-2 SSM layers carry a compressed recurrent summary of the full 256K context, **exact verbatim retrieval of arbitrary tokens outside the local window** (such as an alphanumeric passkey or port number defined $>4,096$ tokens earlier) requires the 6 GQA attention layers to attend over the full sequence.
+While the 23 Mamba-2 SSM layers carry a compressed recurrent summary of the full 256K context, **exact verbatim retrieval of arbitrary tokens outside the local window** (such as an alphanumeric passkey or port number defined $>4,096$ tokens earlier) requires the 6 GQA attention layers to attend over the full sequence.
 - **Empirical Verification (`benchmarks/eval_quality_and_tools.py` Suite `3.1`, `8,512`-token haystack with needle at `37%` depth = `~5,360` tokens from the end)**:
   - **`LLAMA_ATTN_WINDOW=0` (Default — Exact Full-Context Attention)**: Scores **`10.0 / 10.0`**, retrieving both `MODCHIP-E8-9472-OMEGA` and port `49183` verbatim at `19.54–26.08 tok/s` while `_MM_HINT_NTA` (`LLAMA_KV_L3_WINDOW=2048`) streams older KV cells without polluting L3.
   - **`LLAMA_ATTN_WINDOW=4096` (Opt-In Approximate Throughput Mode)**: Scores **`0.0 / 10.0`** on exact out-of-window passkey recall (the compressed Mamba-2 state preserves semantic topic continuity but cannot reconstruct random digits 5,360 tokens back), while keeping prefill throughput flat across long streaming sessions.
@@ -169,7 +169,7 @@ for (int64_t ic = ic_start; ic < ic_end; ++ic) {
 #if defined(__AVX2__) || defined(__AVX512F__)
     if (l3_cfg.attn_window > 0 && cur_pos > l3_cfg.attn_window) {
         if (ic >= l3_cfg.attn_sinks && ic < (cur_pos - l3_cfg.attn_window)) {
-            continue; // Bypass out-of-window KV: 46 Mamba-2 layers carry global state!
+            continue; // Bypass out-of-window KV: 23 Mamba-2 layers carry global recurrent state
         }
     }
 #endif
@@ -181,9 +181,9 @@ for (int64_t ic = ic_start; ic < ic_end; ++ic) {
 | :---: | :---: | :---: | :---: | :---: |
 | **Step 1 (~5,600 tok)** | 178.6 tok/s *(27.4s)* | **200.4 tok/s** *(28.2s)* | ~25.0 tok/s | **47.8 tok/s** |
 | **Step 2 (~11,300 tok)** | 100.9 tok/s *(48.4s)* | **170.8 tok/s** *(33.1s)* | ~20.0 tok/s | **49.1 tok/s** |
-| **Step 3 (~17,000 tok)** | 71.5 tok/s *(68.3s)* | **165.8 tok/s** *(34.1s)* | ~17.0 tok/s | **51.2 tok/s** 🚀 |
-| **Step 4 (~22,600 tok)** | 55.0 tok/s *(88.7s)* | **159.6 tok/s** *(35.4s)* | ~15.2 tok/s | **51.2 tok/s** 🚀 |
-| **Step 5 (~28,254 tok)** | 45.0 tok/s *(108.5s)* ⚠️ | **156.9 tok/s** *(36.0s)* ⚡ | < 15.0 tok/s ⚠️ | **50.5 tok/s** 🎯 |
+| **Step 3 (~17,000 tok)** | 71.5 tok/s *(68.3s)* | **165.8 tok/s** *(34.1s)* | ~17.0 tok/s | **51.2 tok/s** |
+| **Step 4 (~22,600 tok)** | 55.0 tok/s *(88.7s)* | **159.6 tok/s** *(35.4s)* | ~15.2 tok/s | **51.2 tok/s** |
+| **Step 5 (~28,254 tok)** | 45.0 tok/s *(108.5s)* | **156.9 tok/s** *(36.0s)* | < 15.0 tok/s | **50.5 tok/s** |
 
 ---
 
@@ -243,7 +243,7 @@ Profiling CPU instruction retirement during baseline inference revealed that **~
 - Standard GGUF `Q4_0` packs two 4-bit weights into each byte sequentially.
 - To multiply a block of 8 expert rows against an activation vector (`Q8_0`), the CPU had to load raw bytes, bit-shift (`_mm512_srli_epi16`), mask (`0x0F`), and permute lanes on every single token.
 
-By enabling **In-Memory Weight Repacking** (`--repack --load-mode none`) compiled with native Zen 5 **AVX-512 VNNI** (`-march=native`, `__AVX512VNNI__`), `llama-server` transforms all 52 layers of MoE expert tensors (`blk.*.ffn_up_exps.weight`, `blk.*.ffn_down_exps.weight`, `blk.*.ffn_gate_exps.weight`) in RAM at startup into **`q4_0_8x8` interleaved matrix tiles**.
+By enabling **In-Memory Weight Repacking** (`--repack --load-mode none`) compiled with native Zen 5 **AVX-512 VNNI** (`-march=native`, `__AVX512VNNI__`), `llama-server` transforms all 23 Sparse MoE layers (`blk.*.ffn_up_exps.weight`, `blk.*.ffn_down_exps.weight`, `blk.*.ffn_gate_exps.weight`) in RAM at startup into **`q4_0_8x8` interleaved matrix tiles**.
 - During inference, 8 rows are loaded simultaneously in pre-interleaved layout and fed directly into the Zen 5 hardware VNNI instruction:
   ```cpp
   // Hardware single-cycle 64-byte int8 dot-product accumulate:
@@ -253,7 +253,7 @@ By enabling **In-Memory Weight Repacking** (`--repack --load-mode none`) compile
 
 ---
 
-### 3.4. Optimization 4: Crushing the 5-Million Page TLB Wall via 2MB Transparent HugePages
+### 3.4. Optimization 4: Eliminating 4KB Page-Walk Stalls via 2MB Transparent HugePages
 This optimization represents one of the highest-impact microarchitectural interventions in this study.
 
 #### Why MoE Models Suffer Catastrophic TLB Thrashing on 4KB Pages
@@ -321,7 +321,7 @@ Three topological locks were applied:
 
 | Metric | Mono-CCD0 (8 Cores, `0-7`) | Dual-CCD (16 Cores, Unpinned) | **Dual-CCD + `OMP_PROC_BIND=close`** |
 | :--- | :---: | :---: | :---: |
-| **Prompt Prefill Speed (`-b 2048`)** | 201.3 tok/s | 292.3 tok/s | **306.77 tok/s** 🚀 *(Broke 300 t/s!)* |
+| **Prompt Prefill Speed (`-b 2048`)** | 201.3 tok/s | 292.3 tok/s | **306.77 tok/s** |
 | **Single-Token Latency (`N=1`)** | 49.0 ms / tok | 41.7 ms / tok | **39.5 ms / tok** |
 | **Base Decode Throughput (`N=1`)** | 20.4 tok/s | 24.0 tok/s | **25.3 – 27.3 tok/s** |
 | **Speculative Decode Throughput** | ~42.0 tok/s | ~52.0 tok/s | **55.0 – 65.0 tok/s** |
@@ -345,7 +345,7 @@ $$S = \frac{\mathbb{E}[\text{tokens/round}] \times T}{B_{\text{cpu}} \times T + 
 For $S > 1$, the single-step acceptance probability $p$ must satisfy:
 $$p > B_{\text{cpu}} - 1 \implies \mathbf{p > 0.58 \quad (58\%\text{ Break-Even Confidence Gate})}$$
 Furthermore, on hybrid **Mamba-2** models, any rejected token in a draft (`n_rollback > 0`) forces `llama-server` to restore `slot.spec_ckpt` and replay the accepted prefix on the next step (`slot.spec_is_replay = true`), whereas a 100%-accepted draft (`n_rollback == 0`) commits in a single pass with zero checkpoint overhead:
-- **Exact Mamba-2 Recurrent State Checkpoint & Rollback Cost**: Unlike GQA KV cache layers where rollback is a zero-copy `n_past` pointer decrement, each of the 46 Mamba-2 layers maintains an in-place recurrent state tensor (`ssm_states` + `conv1d` rolling history, totaling **`~18.4 MB` per slot** across all 46 SSM layers in `Nemotron-3.5-30B-A3B`). Before verifying a speculative draft batch of $D$ tokens, `llama-server` snapshots this `18.4 MB` recurrent state into `slot.spec_ckpt` (`~0.28 ms` L3/DDR5 `memcpy`).
+- **Exact Mamba-2 Recurrent State Checkpoint & Rollback Cost**: Unlike GQA KV cache layers where rollback is a zero-copy `n_past` pointer decrement, each of the 23 Mamba-2 layers maintains an in-place recurrent state tensor (`ssm_states` + `conv1d` rolling history, totaling **`~18.4 MB` per slot** across all 23 SSM layers in `Nemotron-3.5-30B-A3B`). Before verifying a speculative draft batch of $D$ tokens, `llama-server` snapshots this `18.4 MB` recurrent state into `slot.spec_ckpt` (`~0.28 ms` L3/DDR5 `memcpy`).
 - **What Happens on the `12.5%` Rejection Steps (`n_rollback > 0`)**: If $k < D$ drafted tokens are accepted and token $k+1$ is rejected, `llama-server` copies the `18.4 MB` `slot.spec_ckpt` back into the active SSM state tensor (`~0.28 ms`) and sets `slot.spec_is_replay = true` so the $k$ accepted tokens + the newly sampled target token are re-advanced through the recurrent state on the next batch pass.
 - **Zero-Rollback Certainty Gating + Extended Two-Zone Context (`16K Hot + 24K Prefix`)**: By enforcing progressive per-step certainty thresholds (`84%` at $d=0$, `92%` at $d=1$, `96%` at $d=2$) and scanning both a **16,384-token Hot Zone** (`inp_size - 16384 .. inp_size`, fitting in `64 KB` of L1/L2 cache and scanned in `< 8 µs`) and a **24,576-token Prefix Zone** (`0 .. 24576`, covering all 40 Claude Code tool schemas and project memory) in [`speculative/cpp/ngram-map.cpp`](speculative/cpp/ngram-map.cpp), the engine achieves **87.52% zero-rollback drafts** on general text/code and **`100.0%` draft acceptance (`367 / 367` accepted, `mean len = 5.08`, `40.04 tok/s` sustained / `44.86 tok/s` peak at `25,188` tokens of context)** during live in-context code refactoring!
 
@@ -382,19 +382,19 @@ Alongside the Linear Probe, `RCPredictor` combines 5 L3-resident statistical pre
 | **4. Non-Adjacent Skip-Gram** | $(t_{-3}, t_{-1}) \to t_0$ | Captures C/Python syntax, brackets & JSON fields | **~40%** | ~5% | $< 0.005\text{ ms}$ |
 | **5. Macro & Hot-Token Rules** | $1..6 \to 1..15$ tokens | 300 deterministic hot rules + 11,382 macro chains | **> 95%** | ~12% | $< 0.005\text{ ms}$ |
 | **6. Linear / Online Logit Probe** | Current step $\mathbf{\ell}_{\text{hot}}, h_t$ | Linear projection $W \cdot \mathbf{\ell}_{\text{hot}} + b$ (48–200 hot classes) | **58.2% – 85.5%** | ~51% (hot tokens) | $< 0.002\text{ ms}$ |
-| **7. `Stockfish-PVS v2` (`rc_stockfish.h`)** | $k = 5, 4, 3, 2, 1$ + $D=7$ PVS | `1.64 MB` Zobrist TT (`tt5/tt4/tt3`) + Countermove + Continuation History + Singular Horizon Extension (`M=7`) | **86.1% – 96.4%** *(live)* | Orthogonal Live Session | $< 0.005\text{ ms}$ |
+| **7. `Stockfish-PVS v2` (`rc_stockfish.h`)** | $k = 5, 4, 3$ + $D=7$ PVS | `192 KB` L2-resident Zobrist TT (`tt5/tt4/tt3`) + Refutation Filter + History Gravity + Singular Horizon Extension (`M=7`) | **86.1% – 96.4%** *(live)* | Orthogonal Live Session | $< 0.005\text{ ms}$ |
 
-#### 4. `Stockfish-PVS v2` Chess-Engine Search, Zobrist Transposition Tables & The 4 Unlocked `RouteCrack` Techniques (`M=7` Sweet Spot)
+#### 4. `Stockfish-PVS v2` Zobrist Transposition Tables & Four Enabled `RouteCrack` Techniques (`M=7`)
 
-> 📄 **Full Reference:** See **[`speculative/ROUTECRACK_TECHNIQUES.md`](speculative/ROUTECRACK_TECHNIQUES.md)** for the complete catalog of **96+ studied `RouteCrack` techniques**, negative ablations, and mathematical derivations.
+> **Full Reference:** See **[`speculative/ROUTECRACK_TECHNIQUES.md`](speculative/ROUTECRACK_TECHNIQUES.md)** for the complete catalog of **96+ studied `RouteCrack` techniques**, negative ablations, and derivations.
 
-Because every drafted token in a Sparse MoE (`128` experts, `top-4` active) activates cold expert weights from DDR5 RAM (`~0.30x` single-token latency cost per drafted token) and every rejected draft triggers an `18.4 MB` Mamba-2 recurrent state rollback (`slot.spec_ckpt`), the net wall-clock gain of a speculative drafter is governed by the **CPU-MoE Golden Equation**:
+Because every drafted token in a Sparse MoE (`128` experts, `top-4..6` active) activates cold expert weights from DDR5 RAM (`~0.30x` single-token latency cost per drafted token) and every rejected draft triggers an `18.4 MB` Mamba-2 recurrent state rollback (`slot.spec_ckpt`), the net wall-clock gain of a speculative drafter is governed by:
 $$\text{WallGain} = A - 0.30 \times D = 0.70 \times A - 0.30 \times W_{\text{wasted}}$$
 where $D$ is total drafted tokens, $A$ is accepted tokens, and $W_{\text{wasted}} = D - A$. Any single wasted draft token costs `-0.30` in DRAM bandwidth, so a speculative technique only increases real wall-clock `tok/s` if its **marginal precision exceeds `42.8%`** (or **`>75%`** when accounting for Mamba-2 state rollback overhead).
 
-During the `RouteCrack` research campaign (`96+` techniques evaluated across `77,456` held-out Nemotron-3.5 tokens), many promising techniques (`Online Session Trie`, `Top-4 Cascade Alternatives`, `Macro Codebook`, `D > 4 Horizon Extension`, `PPM/Skipgram Ensemble Voting`) failed when gated solely by static pre-computed confidence because static predictors trained on the same corpus make **correlated errors** (`17%–48%` precision on out-of-distribution tokens).
+During the `RouteCrack` research campaign (`96+` techniques evaluated across `77,456` held-out Nemotron-3.5 tokens), several candidate predictors (`Online Session Trie`, `Top-4 Cascade Alternatives`, `Macro Codebook`, `D > 4 Horizon Extension`, `PPM/Skipgram Ensemble Voting`) underperformed when gated solely by static pre-computed confidence because static predictors trained on the same corpus make **correlated errors** (`17%–48%` precision on out-of-distribution tokens).
 
-Integrating **`StockfishDrafter`** ([`speculative/cpp/rc_stockfish.h`](speculative/cpp/rc_stockfish.h), `1.64 MB` total L2/L3 footprint: `384 KB` 4-way Bucketed Zobrist Transposition Tables `tt5/tt4/tt3` with age-based generational replacement + `1 MB` Countermove Table + `256 KB` Continuation History Table + Principal Variation Search with Late Move Reductions) provided an **orthogonal, zero-allocation live-session oracle** that unlocked **4 dormant `RouteCrack` techniques** in [`speculative/cpp/ngram-map.cpp`](speculative/cpp/ngram-map.cpp):
+Integrating **`StockfishDrafter`** ([`speculative/cpp/rc_stockfish.h`](speculative/cpp/rc_stockfish.h), `192 KB` L2-resident working set: `3 × 64 KB` Zobrist Transposition Tables `tt5/tt4/tt3` storing `key32`, `best_move`, `refuted_move`, `history`, `wins`, `total` + 1-ply quiescence lookahead) provided an **orthogonal, zero-allocation live-session filter** that enabled **4 dormant `RouteCrack` techniques** in [`speculative/cpp/ngram-map.cpp`](speculative/cpp/ngram-map.cpp):
 
 1. **Technique #1 — Online Session Trie Rescue (`rc_trie_v2.h` + `Stockfish-PVS` Gate)**:
    - When the static 8-level FNV-64 Hash Cascade misses or has low confidence (`best_conf < min_c`) on novel session identifiers, variable names, or user file paths, `OnlineTrieV2` (`4M`-node arena) is queried (`ot_cnt >= 2`, `ot_conf >= 0.78`) and **cross-validated against the Stockfish Zobrist TT (`sf_has_cand`)** (or accepted directly on high-support session hits `ot_cnt >= 4 && ot_conf >= 0.90`).
@@ -409,16 +409,16 @@ Integrating **`StockfishDrafter`** ([`speculative/cpp/rc_stockfish.h`](speculati
    - **Consensus Integrity Fix**: Crucially, `true_consensus_hits` is incremented *exclusively* on genuine `ctx_two_hit` steps (preventing single-hit `16K Hot / 24K Prefix` steps rescued by `RouteCrack` from masquerading as 2-hit trajectories and bypassing the `d >= 3` gate).
    - **Marginal Precision at $D=5..7$**: **`98.18%` (`M=6`) to `98.74%` (`M=7`: `+78` accepted tokens, `1` wasted, `-7` rollbacks)**.
 
-##### Held-Out Benchmark Ablation (`77,456` Nemotron-3.5 Tokens, `351` Contexts — [`speculative/cpp/test_synergy.cpp`](speculative/cpp/test_synergy.cpp))
+##### Held-Out Benchmark Ablation (`77,456` Nemotron-3.5 Tokens, `351` Contexts — `RouteCrack` Tier Subset in [`speculative/cpp/test_synergy.cpp`](speculative/cpp/test_synergy.cpp))
 
-| Speculative Engine Configuration | Drafted ($D$) | Accepted ($A$) | Wasted ($W$) | Token Precision | 0-Rollback Steps | Mamba-2 Rollbacks | **CPU-MoE `WallGain`** |
+| Speculative Engine Configuration (`RouteCrack` Standalone Tier) | Drafted ($D$) | Accepted ($A$) | Wasted ($W$) | Token Precision | 0-Rollback Steps | Mamba-2 Rollbacks | **CPU-MoE `WallGain`** |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | **1. `RouteCrack` Baseline (`M=5`, Static Cascade)** | 6,332 | 5,440 | 892 | `85.91%` | `87.31%` | 482 | `+3,540.4` |
 | **2. `+ Stockfish-PVS v1` (`M=5`, Zobrist TT + PVS)** | 6,329 | 5,459 | 870 | `86.25%` *(+0.34%)* | `87.84%` *(+0.53%)* | 461 *(-21)* | `+3,560.3` *(+19.9)* |
 | **3. `+ Stockfish-PVS v2 Sweet Spot` (`M=7`, +Trie +Top4 +Macro +Singular)** | **6,555** | **5,663** | **892** | **`86.39%` *(+0.48%)* ** | **`88.35%` *(+1.04%)* ** | **450 *(-32)* ** | **`+3,696.5` *(+156.1)* ** |
 
 > [!IMPORTANT]
-> **Key Breakthrough**: **`Stockfish-PVS v2 (Sweet Spot, M=7)` yields `+223` additional accepted tokens (`5,440 -> 5,663`) with ZERO additional wasted tokens (`892 -> 892`, marginal precision = `100.0%` net!) and `-32` fewer Mamba-2 recurrent state rollbacks (`482 -> 450`)!**
+> **Marginal Result**: `Stockfish-PVS v2 (M=7)` yields `+223` additional accepted tokens (`5,440 -> 5,663` on the `RouteCrack` tier; `9,453 -> 9,676` combined with Two-Zone matching in [`ROUTECRACK_TECHNIQUES.md` §4](speculative/ROUTECRACK_TECHNIQUES.md)) with zero additional wasted tokens (`892 -> 892`) and `-32` fewer Mamba-2 recurrent state rollbacks (`482 -> 450`).
 
 ##### Live Production 5-Stage Telemetry (`AMD Ryzen 9 9955HX`, `22.2K -> 27.7K` Context)
 
@@ -529,9 +529,9 @@ Built via [`scripts/build_fractal_moe_gguf.sh`](scripts/build_fractal_moe_gguf.s
 
 ---
 
-### 3.11. Generalizing Across Models & CPUs: `llama_modchip.py` ("Priiloader for CPU LLM") & Interleaved 3:1 SWA (`LLAMA_SWA_STRIDE=4`)
+### 3.11. Generalizing Across Models & CPUs: `llama_modchip.py` & Interleaved 3:1 SWA (`LLAMA_SWA_STRIDE=4`)
 
-Not all optimizations are safe on every GGUF architecture. Inspired by console modchips / Priiloader (`hacks.ini`), [`scripts/llama_modchip.py`](scripts/llama_modchip.py) inspects any `.gguf` binary header and the host Linux CPU/cache topology in `<5 ms`, classifies all microarchitectural hacks into safety tiers (`🟢 SAFE / UNIVERSAL`, `🔵 AUTO-ADAPTIVE`, `🟡 EXPERIMENTAL`, `⚪ LOCKED`), and operates at two complementary levels:
+Not all optimizations are safe on every GGUF architecture. [`scripts/llama_modchip.py`](scripts/llama_modchip.py) inspects any `.gguf` binary header and the host Linux CPU/cache topology in `<5 ms`, classifies microarchitectural flags into safety tiers (`SAFE`, `AUTO-ADAPTIVE`, `EXPERIMENTAL`, `LOCKED`), and operates at two levels:
 - **Startup & Graph-Construction Profile**: Injects load-time parameters (`LLAMA_MOE_TOP_K`, `--repack`, `MADV_HUGEPAGE`, deterministic per-CCD `taskset -c` core pinning, `-ctk q8_0 -ctv q4_0`).
 - **Live Per-Forward-Pass `/dev/shm/llama_modchip.bin` Control**: Writes a 48-byte POSIX shared-memory struct read on every forward/draft pass by `ggml-cpu/ops.cpp` and `common/ngram-map.cpp` (`attn_window`, `attn_sinks`, `swa_stride`, `l3_window`, `rc_enabled`, `rc_cert_d0/d1/d2`).
 
@@ -546,12 +546,12 @@ Not all optimizations are safe on every GGUF architecture. Inspired by console m
 
 | Model GGUF | Architecture & Layers | KV / Token (`Q8_0/Q4_0` EAKV) | Auto `L3_WINDOW` | Default Attention Policy | `RouteCrack` Gate | MoE `Top-K` Pruning |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **`Nemotron-3.5-30B-A3B-Fractal-64`** (`14.35 GiB`) | `nemotron_h_moe` (`46 SSM + 6 GQA`) | **`2.44 KB/tok`** *(`1.73 KB` in `Q4/Q4`)* | `2048` (`4.88 MiB`) | `🟢 Exact 256K (window=0)` | `Strict (84/92/96)` | `🟡 6 -> 4 (norm=True)` |
-| **`Nemotron-3.5-30B-A3B-Fractal-MXFP4`** (`15.95 GiB`) | `nemotron_h_moe` (`46 SSM + 6 GQA`) | **`2.44 KB/tok`** *(`1.73 KB` in `Q4/Q4`)* | `2048` (`4.88 MiB`) | `🟢 Exact 256K (window=0)` | `Strict (84/92/96)` | `🟡 6 -> 4 (norm=True)` |
-| **`Nemotron-3.5-30B-A3B-Q4_0`** (`17.59 GiB`) | `nemotron_h_moe` (`46 SSM + 6 GQA`) | **`2.44 KB/tok`** *(`1.73 KB` in `Q4/Q4`)* | `2048` (`4.88 MiB`) | `🟢 Exact 256K (window=0)` | `Strict (84/92/96)` | `🟡 6 -> 4 (norm=True)` |
-| **`Qwen3-30B-A3B-Q4_K_M`** (`17.28 GiB`) | `qwen3moe` (`0 SSM + 48 GQA`) | `39.00 KB/tok` *(`27.65 KB` in `Q4/Q4`)* | `384` (`14.62 MiB`) | `🟢 Exact (0) / 🟡 3:1 SWA (stride=4)` | `CPU-MoE (80/90/95)` | `🟡 8 -> 4 (norm=True)` |
-| **`Nemotron-H-8B-Reasoning-128K`** (`4.6 GiB`) | `nemotron_h` (`48 SSM + 4 GQA`) | `6.50 KB/tok` | `2048` (`13.00 MiB`) | `🟢 Exact (window=0)` | `Strict (84/92/96)` | `⚪ LOCKED (Dense)` |
-| **`Llama-3-Security-40L-Q8_0`** (`23.3 GiB`) | `llama` (`0 SSM + 40 GQA`) | `65.00 KB/tok` | `256` (`16.25 MiB`) | `🟢 Exact (0) / 🟡 3:1 SWA (stride=4)` | `Balanced (78/88/94)` | `⚪ LOCKED (Dense)` |
+| **`Nemotron-3.5-30B-A3B-Fractal-64`** (`14.36 GiB`) | `nemotron_h_moe` (`23 SSM + 23 MoE + 6 GQA`) | **`2.44 KB/tok`** *(`1.73 KB` in `Q4/Q4`)* | `2048` (`4.88 MiB`) | `Exact 256K (window=0)` | `Strict (84/92/96)` | `6 -> 4 (norm=True)` |
+| **`Nemotron-3.5-30B-A3B-Fractal-MXFP4`** (`15.95 GiB`) | `nemotron_h_moe` (`23 SSM + 23 MoE + 6 GQA`) | **`2.44 KB/tok`** *(`1.73 KB` in `Q4/Q4`)* | `2048` (`4.88 MiB`) | `Exact 256K (window=0)` | `Strict (84/92/96)` | `6 -> 4 (norm=True)` |
+| **`Nemotron-3.5-30B-A3B-Q4_0`** (`17.59 GiB`) | `nemotron_h_moe` (`23 SSM + 23 MoE + 6 GQA`) | **`2.44 KB/tok`** *(`1.73 KB` in `Q4/Q4`)* | `2048` (`4.88 MiB`) | `Exact 256K (window=0)` | `Strict (84/92/96)` | `6 -> 4 (norm=True)` |
+| **`Qwen3-30B-A3B-Q4_K_M`** (`17.28 GiB`) | `qwen3moe` (`0 SSM + 48 GQA`) | `39.00 KB/tok` *(`27.65 KB` in `Q4/Q4`)* | `384` (`14.62 MiB`) | `Exact (0) / 3:1 SWA (stride=4)` | `CPU-MoE (80/90/95)` | `8 -> 4 (norm=True)` |
+| **`Nemotron-H-8B-Reasoning-128K`** (`4.6 GiB`) | `nemotron_h` (`48 SSM + 4 GQA`) | `6.50 KB/tok` | `2048` (`13.00 MiB`) | `Exact (window=0)` | `Strict (84/92/96)` | `LOCKED (Dense)` |
+| **`Llama-3-Security-40L-Q8_0`** (`23.3 GiB`) | `llama` (`0 SSM + 40 GQA`) | `65.00 KB/tok` | `256` (`16.25 MiB`) | `Exact (0) / 3:1 SWA (stride=4)` | `Balanced (78/88/94)` | `LOCKED (Dense)` |
 
 Measured directly on `Qwen3-30B-A3B-Q4_K_M` (`17.28 GiB`) on the `Ryzen 9 9955HX`, applying the `llama_modchip.py` profile (`LLAMA_MOE_TOP_K=4` `8->4` + `LLAMA_SWA_STRIDE=4` Interleaved 3:1 SWA + `LLAMA_KV_L3_WINDOW=384` + `-ctk q8_0 -ctv q4_0`) accelerates `pp512` prefill from **`209.04` to `224.05 tok/s` (`+7.2%`)** and boosts base non-speculative `tg64` decode from **`25.12` to `34.80 tok/s` (`+38.5%`)**!
 
@@ -603,8 +603,23 @@ We solve all three walls in [`patches/deepseek-v4-flash-fractal-256k.patch`](pat
    - Layers `3..42` (`40` learned-router layers) follow a steep power law where the 6th expert carries only `6%–9%` of the routed weight. Because the 6 expert output vectors $\mathbf{e}_1(\mathbf{x}), \dots, \mathbf{e}_6(\mathbf{x}) \in \mathbb{R}^{4096}$ are nearly orthogonal ($\langle \mathbf{e}_i, \mathbf{e}_j \rangle \approx 0$), their norms add in quadrature ($\|\sum w_i \mathbf{e}_i\|_2^2 \approx \sum w_i^2 \|\mathbf{e}_i\|_2^2$).
    - Rescaling kept experts linearly ($\alpha_{L_1} = \sum_{i=1}^6 w_i / \sum_{i=1}^k w_i \approx 1.23$) inflates the routed MoE branch relative to the unscaled dense shared expert (`ffn_out = moe_out + ffn_shexp`), whereas **$L_2$-quadrature rescaling** ($\alpha_{L_2} = \sqrt{\sum_{i=1}^6 w_i^2 / \sum_{i=1}^k w_i^2}$) preserves the exact variance entering `RMSNorm` and cuts KL-divergence by **`-58%`**:
      - **`Top-5` (`il >= 3`, $L_2$)**: **`9.68 tok/s` (`103.27 ms/tok`)**, **`0.99714` (`99.71%`) probability cosine similarity**, **`0.0042 nats` KL-divergence (`+0.42%` PPL)**, **`100%` Top-3 agreement**.
-     - **`Top-4` (`il >= 3`, $L_2$)**: **`10.12 tok/s` (`98.84 ms/tok`, breaking `10 tok/s` on pure CPU!)**, **`0.99587` (`99.59%`) probability cosine similarity**, **`0.0281 nats` KL-divergence (`+2.85%` PPL)**, **`100%` Top-3 agreement**.
+     - **`Top-4` (`il >= 3`, $L_2$)**: **`10.12 tok/s` (`98.84 ms/tok`)**, **`0.99587` (`99.59%`) probability cosine similarity**, **`0.0281 nats` KL-divergence (`+2.85%` PPL)**, **`100%` Top-3 agreement**.
      - Controlled at runtime with zero syscall overhead (`0.3 ns`) via memory-mapped `/tmp/dsv4_moe_cfg.bin` on Linux/macOS and `%TEMP%\dsv4_moe_cfg.bin` (`CreateFileMappingA` / `MapViewOfFile`) on Windows (`_WIN32`).
+
+---
+
+### 3.13. Optimization 13: `LUT-VQ3-64` (`GGML_TYPE_VQ3_0 = 43`, `24 B / 64 W = 3.00 bpw`) via AVX-512 VBMI `VPERMI2B`
+
+Introduced in `v2.5.0` ([`vq3/`](vq3/), [`patches/lut-vq3-64-avx512-vbmi.patch`](patches/lut-vq3-64-avx512-vbmi.patch), [`patches/vq3_codebook.h`](patches/vq3_codebook.h), [`benchmarks/QUALITY_GATE_VQ3_64.md`](benchmarks/QUALITY_GATE_VQ3_64.md)):
+
+1. **Spherical 3D Vector Quantization (`block_vq3_0`, `24 bytes` per `64` weights)**:
+   - Heavy-tailed MoE weights ($\kappa = 3.2–4.8$) concentrate inside the 3D $L_2$ sphere / $L_1$ cross-polytope rather than Cartesian cube corners. `LUT-VQ3-64` packs `20` 7-bit 3D Lloyd-Max indices (`140 bits`, weights `0..59`) + `2` 6-bit 2D tail indices (`12 bits`, weights `60..63`) = `19 bytes` (`qs[19]`), `8 × 3-bit` unsigned sub-scales (`3 bytes` `s24[3]`, `mult = 2 + u_b ∈ {2..9}`), and a `2-byte` `FP16` super-scale `d` (`24 B / 64 W = 3.00 bpw`).
+   - On uncompressed `BF16` `blk.1.ffn_up_exps.weight`, `LUT-VQ3-64` reaches **`13.57 dB` SQNR (`97.78%` Cosine Similarity)**, `+3.42 dB` above scalar `Q2_K` (`10.15 dB`).
+2. **Register-Resident AVX-512 VBMI `VPERMI2B` Decode**:
+   - The 128-entry 3D `int8` codebook (`384 bytes`) stays in 6 ZMM registers across `_1x8`, `_1x4`, `_1x3`, `_1x2`, and `1x1` kernels, resolving 64 byte lookups per `_mm512_permutex2var_epi8` instruction with zero L1/L2 cache accesses (with unaligned `_mm512_loadu_si512` `.rdata` constant loads for Windows PE/COFF compatibility and AVX2/scalar fallbacks).
+3. **Domain-Aware Hybrid Checkpoints (`100 / 100` Quality Gate)**:
+   - **`NVIDIA-Nemotron-3.5-30B-A3B-VQ3-64` (`13.30 GiB` shipped Hybrid / `13.08 GiB` full `up_exps`, `16.04 GiB` `VmRSS`)**: Scores **`100.0 / 100.0`** on [`benchmarks/eval_quality_and_tools.py`](benchmarks/eval_quality_and_tools.py) (`24.18 tok/s` E2E, `70.19%` `Stockfish-PVS` acceptance, `-5.67 GiB` RAM vs `Q4_0`).
+   - **`DeepSeek-V4-Flash-0731-VQ3` (`56.40 GiB` shipped Hybrid / `56.07 GiB` aggressive, `58.31 GiB` `VmRSS`)**: Preserves 100% MLA attention in `Fractal-64` (`GGML_TYPE_Q2_0 = 42`) in the shipped 3-shard build, while the 255-tensor `--aggressive` ablation reaches **`9.05 tok/s` (`+16.9%`)** raw `tg64` decode and **`41.11 tok/s` (`+8.8%`)** `pp128` prefill.
 
 ---
 
@@ -634,7 +649,7 @@ AFTER OPTIMIZATIONS: 39.5 ms / token (25.3 tok/s base | 50.5–65.0 tok/s w/ Dra
 
 In systems research, documenting **what failed** is just as valuable as documenting what worked. Below are four techniques evaluated and rejected based on empirical evidence.
 
-### 5.1. Over-Pruning MoE Top-K Below 4 (`Top-6` -> `Top-4` Succeeds, `Top-4` -> `Top-2` Causes the "Lobotomy" Effect)
+### 5.1. Over-Pruning MoE Top-K Below 4 (`Top-6` -> `Top-4` Succeeds, `Top-4` -> `Top-2` Degrades Covariance)
 As shown in Section 3.9, pruning `hparams.n_expert_used` from `6` routed experts (+ `1` double-width shared expert = `8` expert-units) down to **`4` routed experts (`LLAMA_MOE_TOP_K=4`)** succeeds with zero quality loss because the top 4 routed experts capture `>86%` of the router softmax mass and `expert_weights_norm = True` (`scale = 2.5`) renormalizes their weights.
 
 However, pushing dynamic pruning one step further—down to **Top-2 (`LLAMA_MOE_TOP_K=2`)**—crosses a catastrophic cliff:
@@ -662,18 +677,18 @@ A fast model is useless if optimizations degrade its reasoning, or if a compact 
 
 The optimized **Nemotron 3.5 Lightning 30B-A3B (`Q4_0`)** was evaluated across **4 real-world Linux Kernel & Systems Code Auditing cases**, comparing 6 configurations head-to-head:
 
-| Systems & Kernel Code Auditing Benchmark | Weight | `Qwen3-30B` (Old Base) | `Domain QLoRA` (`Qwen3-30B`) | `Qwen 3.5 MoE` (36B SSM) | **`Nemotron 3.5 MoE` (Standalone CPU)** ⚡ | **`Local 30B + Cognitive Memory (RL Replay)`** 👑 | `Frontier Cloud Baseline` |
+| Systems & Kernel Code Auditing Benchmark | Weight | `Qwen3-30B` (Old Base) | `Domain QLoRA` (`Qwen3-30B`) | `Qwen 3.5 MoE` (36B SSM) | **`Nemotron 3.5 MoE` (Standalone CPU)** | **`Local 30B + Cognitive Memory (RL Replay)`** | `Frontier Cloud Baseline` |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Case 0: Multi-Arch Allocator & Session Lifecycle (`PHP 8.4`)** | 25% | 6.8 / 10 | 9.6 / 10 | 9.4 / 10 | **9.7 / 10** 🚀 | **9.8 / 10** | 9.8 / 10 |
+| **Case 0: Multi-Arch Allocator & Session Lifecycle (`PHP 8.4`)** | 25% | 6.8 / 10 | 9.6 / 10 | 9.4 / 10 | **9.7 / 10** | **9.8 / 10** | 9.8 / 10 |
 | **Case 1: Network Daemon RFC 1572 State-Machine (`inetutils`)** | 25% | 4.0 / 10 | 9.2 / 10 | 9.3 / 10 | **9.4 / 10** | **9.6 / 10** | 9.8 / 10 |
 | **Case 2: Kernel Crypto Scatterlist & Page-Cache (`AF_ALG`)** | 25% | 8.0 / 10 | 9.6 / 10 | 9.6 / 10 | **9.6 / 10** | **9.9 / 10** | 9.8 / 10 |
 | **Case 3: Kernel RxRPC Copy-on-Write Verification (`AF_RXRPC`)** | 25% | 7.4 / 10 | 9.4 / 10 | 9.5 / 10 | **9.5 / 10** | **9.7 / 10** | 9.8 / 10 |
-| **COMPOSITE SCORE** | **100%** | **6.60 / 10** | **9.50 / 10** | **9.45 / 10** | **9.55 / 10** ⚡ | **9.80 / 10** 👑 | **9.80 / 10** |
+| **COMPOSITE SCORE** | **100%** | **6.60 / 10** | **9.50 / 10** | **9.45 / 10** | **9.55 / 10** | **9.80 / 10** | **9.80 / 10** |
 
-- **Standalone CPU Excellence (`9.55 / 10`)**: On Case 0, Nemotron 3.5 was the **only base model** to autonomously extract and tabulate both `x86_64` and `aarch64` binary symbol offsets, reconstruct the 149-worker prefork allocator dynamics, and isolate the exact 1-line C fix (`SG(http_session_vars) = NULL;`).
-- **Out-Of-Distribution (OOD) Generalization (`9.65 / 10`)**: On an unseen OOD long-context kernel auditing target, the CPU-hosted Nemotron 3.5 model achieved **9.65 / 10** standalone.
-- **Parity with Frontier Cloud via External Cognitive Memory (`9.80 / 10`)**: Augmenting the local 30B MoE with External Cognitive Memory / Experience Replay (`14,141` episodic & procedural memories) closes the remaining 0.25-point gap with frontier cloud models while executing 100% air-gapped on a single CPU.
+- **Standalone CPU Score (`9.55 / 10`)**: On Case 0, Nemotron 3.5 extracted both `x86_64` and `aarch64` binary symbol offsets, reconstructed the 149-worker prefork allocator dynamics, and isolated the 1-line C fix (`SG(http_session_vars) = NULL;`).
+- **Out-Of-Distribution (OOD) Generalization (`9.65 / 10`)**: On an unseen OOD long-context kernel auditing target, the CPU-hosted Nemotron 3.5 model scored **9.65 / 10** standalone.
+- **External Cognitive Memory Augmentation (`9.80 / 10`)**: Pairing the local 30B MoE with External Cognitive Memory / Experience Replay (`14,141` episodic & procedural memories) closes the remaining 0.25-point gap while executing air-gapped on a single CPU.
 
 ---
 
-*Navigation: [⬅️ Back to Overview & Quickstart (`README.md`)](README.md) · [➡️ Engineering FAQ & Xeon/EPYC Scaling (`FAQ.md`)](FAQ.md)*
+*Navigation: [Back to Overview & Quickstart (`README.md`)](README.md) · [Engineering FAQ & Xeon/EPYC Scaling (`FAQ.md`)](FAQ.md)*

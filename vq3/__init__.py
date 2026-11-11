@@ -1,6 +1,6 @@
 """
-vq3 — LUT-VQ3-64 ("Turbo-Bus" 24-Byte / 3.00 bpw) 3D Vector Quantization & AVX-512 VBMI Prototype
-=================================================================================================
+vq3 — LUT-VQ3-64 (24-Byte / 3.00 bpw) 3D Vector Quantization & AVX-512 VBMI Reference Codec
+===========================================================================================
 Provides:
 - `train_global_lut_vq3_codebook`, `encode_lut_vq3`, `decode_lut_vq3_vbmi`, `quant_dequant_with_global_vq3`:
   128-entry 3D Vector Quantizer in `int8` (384 bytes = 6 ZMM registers `T0, T1, T2` + per-tensor fp32

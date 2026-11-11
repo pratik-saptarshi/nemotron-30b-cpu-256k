@@ -53,7 +53,7 @@ Usage:
 
 Profiles:
   fractal64 (Recommended for Nemotron-3.5-30B-A3B from BF16/F16) Routed experts (ffn_up_exps &
-            ffn_down_exps across all 46 MoE layers) -> Block-64 2-Level Fractal (q2_0,
+            ffn_down_exps across all 23 MoE layers = 46 expert tensors) -> Block-64 2-Level Fractal (q2_0,
             30 bytes / 64 weights = 3.75 bpw, 8x8 sub-blocks with 4-bit shifted sub-scales
             {4..19} fused into vpmaddwd and dyadic codebook {-14,-8,-4,-1,1,4,8,14});
             Mamba-2 ssm_out, 6 GQA Attention & Output head -> Q8_0; ssm_in & shared

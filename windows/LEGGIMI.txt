@@ -1,6 +1,7 @@
 ================================================================================
-  llama-modchip v2.4.0 -- Pacchetto Windows "Doppio Clic & Via"
-  Ottimizzato per: Intel Core i9-9900K + NVIDIA RTX 2080 Ti (11 GB) + 16 GB RAM
+  llama-modchip v2.5.0 -- Pacchetto Windows
+  Modalita' 1 (AVVIA_MODCHIP.bat): Hybrid GPU + CPU MoE per modelli GGUF standard
+  Modalita' 2 (AVVIA_DSV4.bat)   : Motore patchato CPU per Fractal-64 e LUT-VQ3-64
 ================================================================================
 
 COME SI USA (ZERO INSTALLAZIONI MANUALI):

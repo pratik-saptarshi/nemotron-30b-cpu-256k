@@ -10,4 +10,6 @@ start_gateway.sh
 __pycache__/
 .pytest_cache/
 *.pyc
+*.so
 vq3/bench_avx512_vq3
+vq3/test_vq3_ggml_kernels

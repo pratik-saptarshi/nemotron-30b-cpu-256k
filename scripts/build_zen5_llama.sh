@@ -7,7 +7,13 @@ BUILD_DIR="${BUILD_DIR:-${LLAMA_DIR}/build}"
 LLAMA_COMMIT="d2f83055d6e3b379b5d34c4837122a918cf402c2"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-PATCH_FILE="${REPO_ROOT}/patches/zen5-nemotron-256k-optimizations.patch"
+TARGET_MODEL="${TARGET_MODEL:-nemotron}"
+if [[ "$TARGET_MODEL" == "dsv4" || "$TARGET_MODEL" == "deepseek" ]]; then
+    PATCH_FILE="${REPO_ROOT}/patches/deepseek-v4-flash-fractal-256k.patch"
+else
+    PATCH_FILE="${REPO_ROOT}/patches/zen5-nemotron-256k-optimizations.patch"
+fi
+VQ3_PATCH="${REPO_ROOT}/patches/lut-vq3-64-avx512-vbmi.patch"
 # patches stacked on top of PATCH_FILE, applied in file-name order
 SERIES_DIR="${REPO_ROOT}/patches/nemotron-apple-silicon"
 SPEC_CPP_DIR="${REPO_ROOT}/speculative/cpp"
@@ -70,6 +76,7 @@ if [[ ${#SERIES_PATCHES[@]} -gt 0 ]]; then
         if [[ "${RESET_LLAMA_TREE:-0}" == "1" ]]; then
             echo "[*] Only $N_SERIES_IN_TREE of ${#SERIES_PATCHES[@]} patches from patches/nemotron-apple-silicon/ are in $LLAMA_DIR; RESET_LLAMA_TREE=1: resetting its working tree to clean $LLAMA_COMMIT (uncommitted changes are discarded)..."
             git -C "$LLAMA_DIR" checkout HEAD -- .
+            rm -f "$LLAMA_DIR/ggml/src/vq3_codebook.h"
             while read -r created_file; do
                 [[ -n "$created_file" ]] && rm -f "$LLAMA_DIR/$created_file"
             done < <(git -C "$REPO_ROOT" apply --summary "$PATCH_FILE" 2>/dev/null | awk '/create mode/{print $4}')
@@ -82,9 +89,14 @@ if [[ ${#SERIES_PATCHES[@]} -gt 0 ]]; then
     fi
 fi
 
-echo "[*] Applying 256K Hybrid SWA + Fractal-64 SIMD/Metal + L3 NTA + 2MB HugePages patch..."
-if [[ "$SERIES_APPLIED" == "1" ]]; then
-    echo "[i] Patch and patches/nemotron-apple-silicon/ already applied cleanly in $LLAMA_DIR."
+VQ3_ALREADY_APPLIED=0
+if [[ -f "$VQ3_PATCH" ]] && git -C "$LLAMA_DIR" apply --reverse --check "$VQ3_PATCH" 2>/dev/null; then
+    VQ3_ALREADY_APPLIED=1
+fi
+
+echo "[*] Applying 256K Hybrid SWA + Fractal-64 SIMD/Metal + L3 NTA + 2MB HugePages patch ($(basename "$PATCH_FILE"))..."
+if [[ "$SERIES_APPLIED" == "1" || "$VQ3_ALREADY_APPLIED" == "1" ]]; then
+    echo "[i] Base patch and stacked patches already applied cleanly in $LLAMA_DIR."
 elif git -C "$LLAMA_DIR" apply --reverse --check "$PATCH_FILE" 2>/dev/null; then
     echo "[i] Patch already applied cleanly in $LLAMA_DIR."
 elif git -C "$LLAMA_DIR" apply --check "$PATCH_FILE" 2>/dev/null; then
@@ -93,6 +105,7 @@ elif git -C "$LLAMA_DIR" apply --check "$PATCH_FILE" 2>/dev/null; then
 else
     echo "[*] Resetting $LLAMA_DIR working tree to clean $LLAMA_COMMIT before applying updated patch..."
     git -C "$LLAMA_DIR" checkout HEAD -- .
+    rm -f "$LLAMA_DIR/ggml/src/vq3_codebook.h"
     while read -r created_file; do
         [[ -n "$created_file" ]] && rm -f "$LLAMA_DIR/$created_file"
     done < <(git -C "$REPO_ROOT" apply --summary "$PATCH_FILE" 2>/dev/null | awk '/create mode/{print $4}')
@@ -109,7 +122,9 @@ echo "[*] Installing native RouteCrack + Stockfish-PVS C++ speculative engine in
 cp -f "${SPEC_CPP_DIR}/rc_predictor.h" "$LLAMA_DIR/common/"
 cp -f "${SPEC_CPP_DIR}/rc_trie_v2.h" "$LLAMA_DIR/common/"
 cp -f "${SPEC_CPP_DIR}/rc_stockfish.h" "$LLAMA_DIR/common/"
-cp -f "${SPEC_CPP_DIR}/ngram-map.cpp" "$LLAMA_DIR/common/"
+if [[ "$TARGET_MODEL" != "dsv4" && "$TARGET_MODEL" != "deepseek" ]]; then
+    cp -f "${SPEC_CPP_DIR}/ngram-map.cpp" "$LLAMA_DIR/common/"
+fi
 
 if [[ "$SERIES_APPLIED" != "1" && ${#SERIES_PATCHES[@]} -gt 0 ]]; then
     echo "[*] Applying patches/nemotron-apple-silicon/ (Q2_0 tests, Metal Q2_0 decode kernel, gguf-py Q2_0 block size)..."
@@ -125,9 +140,8 @@ if [[ "$SERIES_APPLIED" != "1" && ${#SERIES_PATCHES[@]} -gt 0 ]]; then
     done
 fi
 
-VQ3_PATCH="${REPO_ROOT}/patches/lut-vq3-64-avx512-vbmi.patch"
 if [[ -f "$VQ3_PATCH" ]]; then
-    if git -C "$LLAMA_DIR" apply --reverse --check "$VQ3_PATCH" 2>/dev/null; then
+    if [[ "$VQ3_ALREADY_APPLIED" == "1" ]] || git -C "$LLAMA_DIR" apply --reverse --check "$VQ3_PATCH" 2>/dev/null; then
         echo "[i] LUT-VQ3-64 (VQ3_0) patch already applied in $LLAMA_DIR."
     elif git -C "$LLAMA_DIR" apply --check "$VQ3_PATCH" 2>/dev/null; then
         git -C "$LLAMA_DIR" apply "$VQ3_PATCH"
@@ -168,13 +182,15 @@ else
     CMAKE_ISA_ARGS+=(-DGGML_OPENMP="${OPENMP_OPT}")
 
     if echo "$CPU_FLAGS" | grep -q "avx512_vnni" && echo "$CPU_FLAGS" | grep -q "avx512_bf16"; then
-        echo "[*] Detected AVX-512 VNNI + BF16 (AMD Zen 4/5 or Intel Xeon) — enabling full AVX-512 tile kernels..."
+        echo "[*] Detected AVX-512 VNNI + BF16 (AMD Zen 4/5 or Intel Xeon) — enabling AVX-512 tile kernels..."
         CMAKE_ISA_ARGS+=(
             -DGGML_AVX512=ON
             -DGGML_AVX512_VNNI=ON
-            -DGGML_AVX512_VBMI=ON
             -DGGML_AVX512_BF16=ON
         )
+        if echo "$CPU_FLAGS" | grep -q "avx512vbmi"; then
+            CMAKE_ISA_ARGS+=(-DGGML_AVX512_VBMI=ON)
+        fi
     elif echo "$CPU_FLAGS" | grep -q "avx2"; then
         echo "[*] Detected AVX2 + FMA — enabling AVX2 native kernels..."
         CMAKE_ISA_ARGS+=(

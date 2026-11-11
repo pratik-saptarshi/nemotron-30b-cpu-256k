@@ -1,23 +1,26 @@
-# 🪟 `llama-modchip v2.4.0` — Windows Hybrid GPU + CPU MoE Pack (`RTX / Radeon 8–16 GB` + `16–128 GB RAM`)
+# `llama-modchip v2.5.0` — Windows 10/11 Launchers & Patched Engine Builder
 
-One-click native Windows 10/11 launcher ([`AVVIA_MODCHIP.bat`](AVVIA_MODCHIP.bat) / [`modchip_win.ps1`](modchip_win.ps1)) that brings **`llama-modchip` Tensor-Role Splitting (`-ngl 99 --n-cpu-moe N --load-mode none`)**, **Asymmetric KV Quantization (`-ctk q8_0 -ctv q4_0 -fa on`)**, **Physical Core Pinning (`-t PhysCores`)**, **Draftless N-Gram Speculative Decoding**, and **Zero-Overhead `%TEMP%\dsv4_moe_cfg.bin` $L_2$-Quadrature MoE Tail Pruning (`-MoeTopK 5`)** to Windows PCs equipped with an **8–16 GB NVIDIA CUDA or AMD Vulkan GPU** and **16–128 GB of System RAM** (such as an **Intel Core i9-9900K + NVIDIA RTX 2080 Ti 11 GB + 16 GB DDR4**, or **AMD Ryzen 9 + Radeon RX 9070 XT 16 GB**).
+The `windows/` directory provides two complementary workflows on Windows 10/11:
+
+1. **Patched CPU Engine for `LUT-VQ3-64` (`type 43`) & `Fractal-64` (`type 42`) (`DeepSeek-V4-Flash 284B` & `Nemotron-30B`):**
+   - Build static AVX-512 / AVX2 binaries from source via **[`build_patched_engine.ps1`](build_patched_engine.ps1)** (`-Target dsv4` or `-Target nemotron`) and launch via **[`AVVIA_DSV4.bat`](AVVIA_DSV4.bat)** ([`modchip_dsv4.ps1`](modchip_dsv4.ps1)).
+   - Verified up to **`1,048,576` (`1M`) context** on Windows 11 (`AMD Ryzen 7 9800X3D`, `64 GB` DDR5). Full instructions in **[`README_WINDOWS_PORT.md`](README_WINDOWS_PORT.md)** and **[`docs/WINDOWS_PORT.md`](../docs/WINDOWS_PORT.md)**.
+2. **1-Click Hybrid GPU + CPU MoE Pack for Standard GGUFs (`RTX / Radeon 8–16 GB` + `16–128 GB RAM`):**
+   - **[`AVVIA_MODCHIP.bat`](AVVIA_MODCHIP.bat)** ([`modchip_win.ps1`](modchip_win.ps1)) automates **Tensor-Role Splitting (`-ngl 99 --n-cpu-moe N --load-mode none`)**, **Asymmetric KV Quantization (`-ctk q8_0 -ctv q4_0 -fa on`)**, **Physical Core Pinning (`-t PhysCores`)**, and **Draftless N-Gram Speculative Decoding** using official `ggml-org/llama.cpp` CUDA 12.4 or Vulkan binaries.
 
 ---
 
-## ⚡ Quickstart (Double-Click & Go)
+## Quickstart: Hybrid GPU + CPU MoE Pack (`AVVIA_MODCHIP.bat`)
 
-1. Open the `windows` folder and double-click **[`AVVIA_MODCHIP.bat`](AVVIA_MODCHIP.bat)** (or run `./modchip start` from Git Bash / MSYS2).
+1. Open the `windows` folder and run **[`AVVIA_MODCHIP.bat`](AVVIA_MODCHIP.bat)** (or `./modchip start` from Git Bash / MSYS2).
 2. On first run, [`modchip_win.ps1`](modchip_win.ps1) automatically:
-   - Detects your physical CPU core count (`8` physical cores on `i9-9900K`), free System RAM, and live free GPU VRAM via `nvidia-smi`.
-   - Downloads the official `ggml-org/llama.cpp` Windows CUDA 12.4 binaries + CUDA runtime DLLs into `bin\` (no CUDA Toolkit installation required — only your standard NVIDIA GeForce driver; automatically falls back to Vulkan on AMD/Intel GPUs).
-   - Lets you pick from **4 pre-tuned profiles** (with resume-safe `curl.exe -C -` download into `models\`):
-     - **`[1]` `Qwen3-30B-A3B` (`Q3_K_M`, `13.7 GiB`)** — *Recommended for `11 GB VRAM + 16 GB RAM`*: keeps the backbone + ~30 MoE layers on GPU (`~9.2 GB` VRAM) and only `~4.5 GB` of sparse MoE layers in System RAM (`--load-mode none`), leaving Windows completely responsive.
-     - **`[2]` `NVIDIA-Nemotron-3.5-30B-A3B` (`Q4_0`, `17.6 GiB` or `Fractal-MXFP4`, `15.2 GiB`)** — *128K–256K Hybrid Mamba-2 + MoE*: puts Mamba-2 + GQA + 9 MoE layers on GPU (`~9.6 GB` VRAM) and 14 MoE layers in System RAM (`~8.0 GB`). *(Tip: on AMD/Vulkan or NVIDIA CUDA hybrids, `Fractal-MXFP4` hits **`75.1–80.8 tok/s`** at 256K context using only `15.2 GB`; note that `Fractal-64` (`Q2_0`) uses a custom CPU SIMD layout without a Vulkan GPU shader and is therefore CPU-only).*
-     - **`[3]` `Qwen3-14B` (`Q4_K_M`, `8.4 GiB`)** — *100% GPU (`0 GB` System RAM)*: runs entirely inside an `11 GB` RTX 2080 Ti (`616 GB/s` GDDR6) at `~50–58 tok/s`.
-     - **`[4]` `NVIDIA-Nemotron-H-8B-Reasoning-128K` (`Q8_0`, `8.0 GiB`)** — *100% GPU Turbo 128K*: 8-bit precision with 128K context (`~210 MB` KV cache) running 100% in VRAM at `~100+ tok/s`.
-   - Dynamically computes `--n-cpu-moe` right before launch from your live free VRAM (`nvidia-smi`), keeping a `550 MB` WDDM safety buffer so Windows never spills VRAM into slow shared GTT memory, and auto-detects `--load-mode none` vs `--no-mmap`.
-   - Writes `%TEMP%\dsv4_moe_cfg.bin` (using `FileShare::ReadWrite` in-place updates) for zero-overhead runtime $L_2$-quadrature MoE tail pruning (`-MoeTopK 5` or `-MoeMinW 0.11`).
-     - *Note on Stock vs Patched Windows Binaries*: Official `ggml-org/llama.cpp` Windows binaries downloaded automatically by `modchip_win.ps1` natively support `--n-cpu-moe`, `--load-mode none`, `-ctk q8_0 -ctv q4_0`, `--spec-type ngram-simple`, `Fractal-MXFP4`, `Q4_0`, and `Q3_K_M` out of the box. Custom `llama-modchip` C/C++ extensions (`%TEMP%\dsv4_moe_cfg.bin` live $L_2$-quadrature MoE pruning, `Fractal-64` `Q2_0`, and `Stockfish-PVS v2`) are activated when running a `llama-server.exe` binary compiled with [`patches/deepseek-v4-flash-fractal-256k.patch`](../patches/deepseek-v4-flash-fractal-256k.patch) / [`patches/zen5-nemotron-256k-optimizations.patch`](../patches/zen5-nemotron-256k-optimizations.patch).
-   - Automatically opens the Web Chat UI (`http://127.0.0.1:8080`) in your browser and exposes an OpenAI-compatible API at `http://127.0.0.1:8080/v1`.
+   - Detects physical CPU core count, free System RAM, and live free GPU VRAM via `nvidia-smi`.
+   - Downloads official `ggml-org/llama.cpp` Windows CUDA 12.4 binaries + CUDA runtime DLLs into `bin\` (no CUDA Toolkit required beyond the standard NVIDIA driver; falls back to Vulkan on AMD/Intel GPUs).
+   - Offers **4 pre-configured standard GGUF profiles** (with resume-safe `curl.exe -C -` downloads into `models\`):
+     - **`[1]` `Qwen3-30B-A3B` (`Q3_K_M`, `13.7 GiB`)** — *For `11 GB VRAM + 16 GB RAM`*: keeps the dense trunk + ~30 MoE layers on GPU (`~9.2 GB` VRAM) and `~4.5 GB` of sparse MoE layers in System RAM (`--load-mode none`).
+     - **`[2]` `NVIDIA-Nemotron-3.5-30B-A3B` (`Q4_0`, `17.59 GiB` or `Fractal-MXFP4`, `15.95 GiB`)** — *128K–256K Hybrid Mamba-2 + MoE*: places Mamba-2 + GQA + top MoE layers in GPU VRAM and remaining MoE layers in System RAM (`75.1–80.8 tok/s` on Radeon RX 9070 XT 16 GB Vulkan with `Fractal-MXFP4`).
+     - **`[3]` `Qwen3-14B` (`Q4_K_M`, `8.4 GiB`)** — *100% GPU (`0 GB` System RAM)*: fits inside an `11 GB` RTX 2080 Ti at `~50–58 tok/s`.
+     - **`[4]` `NVIDIA-Nemotron-H-8B-Reasoning-128K` (`Q8_0`, `8.0 GiB`)** — *100% GPU 128K*: 8-bit precision with 128K context (`~210 MB` KV cache) in VRAM at `~100+ tok/s`.
+   - Computes `--n-cpu-moe` dynamically from live free VRAM with a `550 MB` WDDM safety reserve so Windows does not spill allocations into shared GTT memory, auto-detects `--load-mode none` vs `--no-mmap` and `--spec-ngram-size-n` CLI flags, and starts `http://127.0.0.1:8080` (`/v1` OpenAI-compatible API).
 
-3. To benchmark your Windows PC, double-click **[`BENCHMARK_PC.bat`](BENCHMARK_PC.bat)**.
+3. To benchmark your Windows PC, run **[`BENCHMARK_PC.bat`](BENCHMARK_PC.bat)**. For custom `LUT-VQ3-64` / `Fractal-64` checkpoints, see **[`README_WINDOWS_PORT.md`](README_WINDOWS_PORT.md)**.

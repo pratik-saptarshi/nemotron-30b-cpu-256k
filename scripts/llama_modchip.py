@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 """
-llama_modchip.py — "Priiloader / Modchip" for CPU LLM Inference
-================================================================
+llama_modchip.py — Hardware & GGUF Auto-Profiler for CPU LLM Inference
+======================================================================
 Inspects any GGUF model header + Linux CPU/Cache/RAM topology in <5ms,
-computes safety-locked microarchitectural hack profiles, writes live
+computes safety-locked microarchitectural profiles, writes live
 runtime overrides to /dev/shm/llama_modchip.bin, and provides an
-interactive Priiloader-style TUI or CLI launcher.
+interactive Curses TUI or CLI launcher.
 
 Supported Modes:
   1. Single-model dashboard & live SHM writer:
        python3 scripts/llama_modchip.py --model /path/to/model.gguf [--apply-shm] [--print-cmd]
   2. Multi-model comparative audit across multiple GGUF architectures:
        python3 scripts/llama_modchip.py --audit model1.gguf model2.gguf ...
-  3. Interactive Priiloader TUI (toggle hacks live in /dev/shm/llama_modchip.bin):
+  3. Interactive Curses TUI (toggle settings live in /dev/shm/llama_modchip.bin):
        python3 scripts/llama_modchip.py --model /path/to/model.gguf --tui
 """
 
@@ -166,6 +166,13 @@ class GGUFModelInfo:
 
 def inspect_gguf(path: str) -> GGUFModelInfo:
     file_size = os.path.getsize(path)
+    m_shard = re.search(r"-(\d{5})-of-(\d{5})\.gguf$", path)
+    if m_shard:
+        prefix = path[: m_shard.start()]
+        total_shards = int(m_shard.group(2))
+        shard_paths = [f"{prefix}-{i:05d}-of-{total_shards:05d}.gguf" for i in range(1, total_shards + 1)]
+        if all(os.path.isfile(sp) for sp in shard_paths):
+            file_size = sum(os.path.getsize(sp) for sp in shard_paths)
     meta: Dict[str, Any] = {}
     with open(path, "rb") as f:
         magic = f.read(4)
@@ -204,10 +211,18 @@ def inspect_gguf(path: str) -> GGUFModelInfo:
     value_length = int(meta.get(f"{arch}.attention.value_length", default_head_dim))
 
     # Bytes per token across all attention layers:
-    # FP16: 2 bytes * (K_dim + V_dim) * total_kv_heads
-    kv_bytes_fp16 = 2 * (key_length + value_length) * total_kv_heads
-    # Asymmetric Q8_0 (K: ~1.0625 B/elem) + Q4_0 (V: ~0.5625 B/elem)
-    kv_bytes_q8q4 = int(round((1.0625 * key_length + 0.5625 * value_length) * total_kv_heads))
+    if arch == "deepseek4":
+        kv_lora = int(meta.get(f"{arch}.attention.kv_lora_rank", 512))
+        qk_rope = int(meta.get(f"{arch}.attention.key_length_mla", 64))
+        mla_dim = kv_lora + qk_rope
+        kv_bytes_fp16 = 2 * mla_dim * attn_layers
+        # DeepSeek-V4 MLA requires matching K/V cache types (Q8_0/Q8_0 default: ~1.0625 B/elem)
+        kv_bytes_q8q4 = int(round(1.0625 * mla_dim * attn_layers))
+    else:
+        # FP16: 2 bytes * (K_dim + V_dim) * total_kv_heads
+        kv_bytes_fp16 = 2 * (key_length + value_length) * total_kv_heads
+        # Asymmetric Q8_0 (K: ~1.0625 B/elem) + Q4_0 (V: ~0.5625 B/elem)
+        kv_bytes_q8q4 = int(round((1.0625 * key_length + 0.5625 * value_length) * total_kv_heads))
 
     expert_count = int(meta.get(f"{arch}.expert_count", 0))
     expert_used_count = int(meta.get(f"{arch}.expert_used_count", 0))
@@ -329,7 +344,7 @@ def probe_hardware() -> HardwareInfo:
     has_avx512_vnni = "avx512_vnni" in flags_set
     has_avx2 = "avx2" in flags_set
     isa_list = []
-    for k in ("avx512f", "avx512_vnni", "avx512_bf16", "avx2", "fma"):
+    for k in ("avx512f", "avx512_vnni", "avx512vbmi", "avx512_bf16", "avx2", "fma"):
         if k in flags_set:
             isa_list.append(k.upper())
 
@@ -510,7 +525,13 @@ def compute_modchip_profile(hw: HardwareInfo, model: GGUFModelInfo, swa_override
         rc_reason = "Dense weights already streamed per batch; zero KV rollback cost."
 
     # 4. Norm-Preserving Dynamic MoE Top-K Pruning (LLAMA_MOE_TOP_K)
-    if model.is_moe and model.expert_used_count >= 6:
+    if model.arch == "deepseek4":
+        moe_top_k = 0
+        moe_safety = "LOCKED"
+        moe_val = f"LOCKED (Native Top-{model.expert_used_count} MLA/MoE Routing Preserved)"
+        moe_reason = "DeepSeek-V4 uses 3 hash-routed + 40 learned Top-6 layers; keep Top-6 unpruned."
+        moe_enabled = False
+    elif model.is_moe and model.expert_used_count >= 6:
         moe_top_k = 4
         saved_pct = int(round((1.0 - (moe_top_k / model.expert_used_count)) * 100))
         if model.expert_weights_norm:
@@ -586,10 +607,21 @@ def compute_modchip_profile(hw: HardwareInfo, model: GGUFModelInfo, swa_override
             rc_reason
         ),
         HackItem(
-            7, "eakv_quant", "Asymmetric KV Quantization (-ctk q8_0 -ctv q4_0)",
+            7, "eakv_quant",
+            "Symmetric MLA KV Quantization (-ctk q8_0 -ctv q8_0)"
+            if model.arch == "deepseek4"
+            else "Asymmetric KV Quantization (-ctk q8_0 -ctv q4_0)",
             "AUTO-ADAPTIVE", "SAFE", use_eakv,
-            f"ON ({model.kv_bytes_per_tok_fp16} B/tok FP16 -> {model.kv_bytes_per_tok_q8q4} B/tok Q8/Q4, -62.5%)",
-            "Preserves FP16-equivalent needle retrieval on Keys (Q8_0) while halving Value bandwidth (Q4_0)."
+            (
+                f"ON ({model.kv_bytes_per_tok_fp16} B/tok FP16 -> {model.kv_bytes_per_tok_q8q4} B/tok Q8_0 MLA, -46.9%)"
+                if model.arch == "deepseek4"
+                else f"ON ({model.kv_bytes_per_tok_fp16} B/tok FP16 -> {model.kv_bytes_per_tok_q8q4} B/tok Q8/Q4, -62.5%)"
+            ),
+            (
+                "DeepSeek-V4 MLA requires matching K/V cache types (Q8_0/Q8_0 or Q4_0/Q4_0)."
+                if model.arch == "deepseek4"
+                else "Preserves FP16-equivalent needle retrieval on Keys (Q8_0) while halving Value bandwidth (Q4_0)."
+            ),
         ),
         HackItem(
             8, "hybrid_swa", "Architecture-Aware Sliding Window Attention + 16 Sinks",
@@ -735,7 +767,7 @@ def build_launch_command(
         f"LLAMA_RC_CERT_D1={prof.rc_cert_d1}",
         f"LLAMA_RC_CERT_D2={prof.rc_cert_d2}",
     ]
-    if prof.moe_top_k > 0:
+    if prof.moe_top_k > 0 and prof.model.arch != "deepseek4":
         env_parts.insert(0, f"LLAMA_MOE_TOP_K={prof.moe_top_k}")
     env_parts.append(f"OMP_PROC_BIND={prof.hw.omp_proc_bind}")
     env_parts.append("OMP_PLACES=cores")
@@ -754,7 +786,8 @@ def build_launch_command(
         "-cb -ub 2048 -b 2048 --flash-attn auto",
     ]
     if prof.use_eakv:
-        cmd_parts.append("--cache-type-k q8_0 --cache-type-v q4_0")
+        ctv = "q8_0" if prof.model.arch == "deepseek4" else "q4_0"
+        cmd_parts.append(f"--cache-type-k q8_0 --cache-type-v {ctv}")
     if prof.use_repack:
         cmd_parts.append("--repack")
     cmd_parts.append("--cache-reuse 256 --slot-save-path /dev/shm")
@@ -786,7 +819,7 @@ def print_profile_report(prof: ModchipProfile) -> None:
     m = prof.model
     hw = prof.hw
     print("┌" + "─" * 98 + "┐")
-    print(f"│ {'CPU-MODCHIP v2.1.0 (Priiloader for GGUF Microarchitectural Hacks)':<96} │")
+    print(f"│ {'llama-modchip v2.5.0 — CPU GGUF Hardware & Topology Profiler':<96} │")
     print("├" + "─" * 98 + "┤")
     print(f"│ [HARDWARE] CPU: {hw.cpu_model[:44]:<44} | CCDs: {hw.num_ccds}x{hw.l3_per_ccd_mb:.0f}MB L3 | RAM: {hw.ram_total_gib:.0f} GiB │")
     print(f"│ [ISA/THP]  Flags: {', '.join(hw.isa_flags):<42} | THP: {hw.thp_mode:<10} | Cores: {len(hw.physical_core_cpus):<6} │")
@@ -803,7 +836,7 @@ def print_profile_report(prof: ModchipProfile) -> None:
 
 def print_multi_model_audit(profiles: List[ModchipProfile]) -> None:
     print("\n" + "=" * 116)
-    print(" MULTI-MODEL PRIILOADER / CPU-MODCHIP COMPATIBILITY MATRIX (LIVE GGUF + HARDWARE AUDIT)")
+    print(" MULTI-MODEL LLAMA-MODCHIP COMPATIBILITY MATRIX (LIVE GGUF + HARDWARE AUDIT)")
     print("=" * 116)
     header = (
         f"{'Model GGUF':<36} | {'Arch & Layers':<22} | {'KV/tok (Q8/Q4)':<14} | "
@@ -920,7 +953,7 @@ def run_ab_benchmark(prof: ModchipProfile, bench_bin: Optional[str] = None) -> i
     native_top_k = m.expert_used_count if m.is_moe else 0
 
     print("\n" + "=" * 100)
-    print(f" RUNNING 1-COMMAND A/B BENCHMARK: Stock Baseline vs. llama-modchip v2.1.0 ({m.filename})")
+    print(f" RUNNING 1-COMMAND A/B BENCHMARK: Stock Baseline vs. llama-modchip v2.5.0 ({m.filename})")
     print("=" * 100)
 
     # 1. Baseline (Stock FP16 KV, Native Top-K, No SWA, No SHM override)
@@ -932,7 +965,7 @@ def run_ab_benchmark(prof: ModchipProfile, bench_bin: Optional[str] = None) -> i
     base_env = os.environ.copy()
     base_env["LLAMA_ATTN_WINDOW"] = "0"
     base_env["LLAMA_SWA_STRIDE"] = "1"
-    if native_top_k > 0:
+    if native_top_k > 0 and m.arch != "deepseek4":
         base_env["LLAMA_MOE_TOP_K"] = str(native_top_k)
 
     base_cmd = [
@@ -954,20 +987,21 @@ def run_ab_benchmark(prof: ModchipProfile, bench_bin: Optional[str] = None) -> i
     mod_env["LLAMA_SWA_STRIDE"] = str(prof.swa_stride)
     mod_env["LLAMA_KV_L3_WINDOW"] = str(prof.l3_window)
     mod_env["LLAMA_KV_DISABLE_CHUNKING"] = str(prof.disable_chunking)
-    if prof.moe_top_k > 0:
+    if prof.moe_top_k > 0 and m.arch != "deepseek4":
         mod_env["LLAMA_MOE_TOP_K"] = str(prof.moe_top_k)
 
+    ctv = "q8_0" if m.arch == "deepseek4" else "q4_0"
     mod_cmd = [
         "taskset", "-c", hw.taskset_mask,
         resolved_bench,
         "-m", m.path,
         "-t", str(n_threads),
-        "-ctk", "q8_0", "-ctv", "q4_0",
+        "-ctk", "q8_0", "-ctv", ctv,
         "-p", "512", "-n", "64", "-r", "2",
     ]
     print(
-        f"[*] Run B (llama-modchip — Top-K={prof.moe_top_k or 'Dense'}, "
-        f"SWA_STRIDE={prof.swa_stride}, L3_WIN={prof.l3_window}, Q8_0/Q4_0 KV): running..."
+        f"[*] Run B (llama-modchip — Top-K={prof.moe_top_k or native_top_k or 'Dense'}, "
+        f"SWA_STRIDE={prof.swa_stride}, L3_WIN={prof.l3_window}, Q8_0/{ctv.upper()} KV): running..."
     )
     res_b = subprocess.run(mod_cmd, env=mod_env, capture_output=True, text=True)
     pp_b, tg_b = _parse_llama_bench_output(res_b.stdout + "\n" + res_b.stderr)
@@ -975,16 +1009,16 @@ def run_ab_benchmark(prof: ModchipProfile, bench_bin: Optional[str] = None) -> i
     if pp_a and tg_a and pp_b and tg_b:
         pp_gain = ((pp_b - pp_a) / pp_a) * 100.0
         tg_gain = ((tg_b - tg_a) / tg_a) * 100.0
-        print("\n### 📊 Ready-to-Paste Community Benchmark Table (Markdown)\n")
+        print("\n### Ready-to-Paste Community Benchmark Table (Markdown)\n")
         print(f"- **CPU:** `{hw.cpu_model}` (`{n_threads}` physical cores, `{hw.num_ccds}x{hw.l3_per_ccd_mb:.0f} MB` L3, THP=`{hw.thp_mode}`)")
         print(f"- **Model:** `{m.filename}` (`{m.arch_summary}`, `{m.file_size_gib:.2f} GiB`)\n")
         print("| Configuration | Prefill (`pp512`) | Decode (`tg64` Base, No Spec) | Active Profile |")
         print("| :--- | :---: | :---: | :--- |")
         print(f"| **Stock Baseline** | `{pp_a:.2f} tok/s` | `{tg_a:.2f} tok/s` | `Top-K={native_top_k or 'Dense'}`, `FP16 KV`, `No SWA` |")
         print(
-            f"| **`llama-modchip v2.1.0`** | **`{pp_b:.2f} tok/s` (`{pp_gain:+.1f}%`)** | "
+            f"| **`llama-modchip v2.5.0`** | **`{pp_b:.2f} tok/s` (`{pp_gain:+.1f}%`)** | "
             f"**`{tg_b:.2f} tok/s` (`{tg_gain:+.1f}%`)** | "
-            f"`Top-K={prof.moe_top_k or 'Dense'}`, `SWA_STRIDE={prof.swa_stride}`, `L3_WIN={prof.l3_window}`, `Q8_0/Q4_0` |"
+            f"`Top-K={prof.moe_top_k or native_top_k or 'Dense'}`, `SWA_STRIDE={prof.swa_stride}`, `L3_WIN={prof.l3_window}`, `Q8_0/{ctv.upper()}` |"
         )
         print()
     else:
@@ -1006,7 +1040,7 @@ def run_tui(prof: ModchipProfile, port: int = 8001) -> None:
             h, w = stdscr.getmaxyx()
             m = prof.model
             hw = prof.hw
-            stdscr.addstr(0, 0, f"=== CPU-MODCHIP v2.1.0 (Priiloader TUI) == Target: {m.filename} ==="[:w - 1], curses.A_BOLD)
+            stdscr.addstr(0, 0, f"=== llama-modchip v2.5.0 (Live SHM TUI) == Target: {m.filename} ==="[:w - 1], curses.A_BOLD)
             stdscr.addstr(1, 0, f"CPU: {hw.cpu_model} ({hw.num_ccds}x{hw.l3_per_ccd_mb:.0f}MB L3) | Arch: {m.arch_summary}"[:w - 1])
             stdscr.addstr(2, 0, "-" * min(w - 1, 96))
 
@@ -1060,7 +1094,7 @@ def run_tui(prof: ModchipProfile, port: int = 8001) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Priiloader / Modchip for CPU LLM GGUF Inference")
+    parser = argparse.ArgumentParser(description="Hardware & GGUF Auto-Profiler for CPU LLM Inference")
     parser.add_argument("--model", "-m", type=str, help="Path to target GGUF model")
     parser.add_argument("--audit", nargs="+", help="Audit and compare multiple GGUF models")
     parser.add_argument("--apply-shm", action="store_true", help="Write live config struct to /dev/shm/llama_modchip.bin")
@@ -1071,7 +1105,7 @@ def main() -> int:
     parser.add_argument("--port", type=int, default=default_port, help=f"llama-server port for --print-cmd and --tui live telemetry (default: {default_port})")
     parser.add_argument("--swa", type=int, default=0, help="Opt-in approximate Sliding Window Attention size in tokens (default: 0 = full exact attention)")
     parser.add_argument("--json", action="store_true", help="Output profile as JSON")
-    parser.add_argument("--tui", action="store_true", help="Launch interactive Priiloader Curses TUI")
+    parser.add_argument("--tui", action="store_true", help="Launch interactive Curses TUI")
     args = parser.parse_args()
 
     hw = probe_hardware()

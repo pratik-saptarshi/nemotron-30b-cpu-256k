@@ -12,7 +12,7 @@
 # Options:
 #   --workspace <dir>   Target build/model directory (default: ./workspace)
 #   --model <path>      Use an existing GGUF file instead of downloading
-#   --skip-model        Build binaries & scripts without downloading the 17 GB GGUF
+#   --skip-model        Build binaries & scripts without downloading the 17.6 GiB (18.9 GB) GGUF
 #   --corpus <dir>      Optional path to your own codebase to train RouteCrack n-grams
 #   --port <port>       llama-server port (default: 8789)
 # ==============================================================================
@@ -154,7 +154,7 @@ echo "[+] Compiled RouteCrack table builders in ${WORKSPACE_DIR}/bin/"
 
 echo ""
 echo "=============================================================================="
-echo " STEP 3/5: RESOLVING / DOWNLOADING NEMOTRON-3.5-30B-A3B Q4_0 GGUF (17.1 GB)"
+echo " STEP 3/5: RESOLVING / DOWNLOADING NEMOTRON-3.5-30B-A3B Q4_0 GGUF (17.6 GiB / 18.9 GB)"
 echo "=============================================================================="
 if [[ -z "$MODEL_PATH" ]]; then
     if [[ -f "${WORKSPACE_DIR}/models/${DEFAULT_MODEL_NAME}" ]]; then
@@ -305,7 +305,7 @@ if [[ ! -f "\$MODEL" ]]; then
     exit 1
 fi
 
-# Run llama-modchip ("Priiloader for CPU GGUF Inference") to inspect the GGUF header,
+# Run llama-modchip to inspect the GGUF header,
 # engage architecture safety locks (e.g. Interleaved 3:1 SWA on Pure GQA), and write /dev/shm/llama_modchip.bin
 python3 "${REPO_ROOT}/scripts/llama_modchip.py" --model "\$MODEL" --apply-shm
 
@@ -316,6 +316,7 @@ import llama_modchip as mc
 hw = mc.probe_hardware()
 info = mc.inspect_gguf(sys.argv[1])
 prof = mc.compute_modchip_profile(hw, info)
+print(f"export MODEL_ARCH=\"{info.arch}\"")
 print(f"export LLAMA_KV_L3_WINDOW=\${{LLAMA_KV_L3_WINDOW:-{prof.l3_window}}}")
 print(f"export LLAMA_ATTN_WINDOW=\${{LLAMA_ATTN_WINDOW:-{prof.attn_window}}}")
 print(f"export LLAMA_ATTN_SINKS=\${{LLAMA_ATTN_SINKS:-{prof.attn_sinks}}}")
@@ -325,7 +326,7 @@ print(f"export LLAMA_RC_ENABLED=\${{LLAMA_RC_ENABLED:-{prof.rc_enabled}}}")
 print(f"export LLAMA_RC_CERT_D0=\${{LLAMA_RC_CERT_D0:-{prof.rc_cert_d0}}}")
 print(f"export LLAMA_RC_CERT_D1=\${{LLAMA_RC_CERT_D1:-{prof.rc_cert_d1}}}")
 print(f"export LLAMA_RC_CERT_D2=\${{LLAMA_RC_CERT_D2:-{prof.rc_cert_d2}}}")
-if prof.moe_top_k > 0:
+if prof.moe_top_k > 0 and info.arch != "deepseek4":
     print(f"export LLAMA_MOE_TOP_K=\${{LLAMA_MOE_TOP_K:-{prof.moe_top_k}}}")
 print(f"export OMP_PROC_BIND=\${{OMP_PROC_BIND:-{hw.omp_proc_bind}}}")
 print(f"export OMP_PLACES=\${{OMP_PLACES:-cores}}")
@@ -335,6 +336,11 @@ print(f"export BATCH_THREADS=\${{BATCH_THREADS:-{hw.batch_threads}}}")
 PYEOF
 )" || exit 1
 eval "\$PROFILE_ENV"
+
+CACHE_V_TYPE="q4_0"
+if [[ "\${MODEL_ARCH:-}" == "deepseek4" ]]; then
+    CACHE_V_TYPE="q8_0"
+fi
 
 SERVER_HOST="\${SERVER_HOST:-${SERVER_HOST}}"
 SERVER_PORT="\${SERVER_PORT:-${SERVER_PORT}}"
@@ -357,7 +363,7 @@ exec taskset -c "\${TASKSET_MASK}" "${WORKSPACE_DIR}/bin/llama-server-nemotron" 
   -t "\${DECODE_THREADS}" \\
   -tb "\${BATCH_THREADS}" \\
   --cache-type-k q8_0 \\
-  --cache-type-v q4_0 \\
+  --cache-type-v "\${CACHE_V_TYPE}" \\
   --flash-attn auto \\
   --load-mode none \\
   --repack \\

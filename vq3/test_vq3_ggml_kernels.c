@@ -1,10 +1,15 @@
+/*
+ * Standalone verification test for LUT-VQ3-64 (GGML_TYPE_VQ3_0 = 43) AVX-512 VBMI kernels.
+ * Build & run:
+ *   gcc -O3 -march=native -mavx512f -mavx512bw -mavx512vbmi -mf16c -mbmi2 vq3/test_vq3_ggml_kernels.c -lm -o vq3/test_vq3_ggml_kernels && ./vq3/test_vq3_ggml_kernels
+ */
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
 #include <math.h>
 #include <immintrin.h>
-#include "/opt/models/deepseek-v4/lcc/vq3/vq3_codebook.h"
+#include "vq3_codebook.h"
 
 #define QK_VQ3_0 64
 typedef uint16_t ggml_half;
@@ -181,9 +186,31 @@ void dequantize_row_vq3_0(const block_vq3_0 * restrict x, float * restrict y, in
     }
 }
 
-#define GGML_VQ3_0_VARS     const __m512i zero512 = _mm512_setzero_si512();     const __m512i lut0_lo = _mm512_load_si512((const __m512i *)ggml_vq3_lut0_lo);     const __m512i lut0_hi = _mm512_load_si512((const __m512i *)ggml_vq3_lut0_hi);     const __m512i lut1_lo = _mm512_load_si512((const __m512i *)ggml_vq3_lut1_lo);     const __m512i lut1_hi = _mm512_load_si512((const __m512i *)ggml_vq3_lut1_hi);     const __m512i lut2_lo = _mm512_load_si512((const __m512i *)ggml_vq3_lut2_lo);     const __m512i lut2_hi = _mm512_load_si512((const __m512i *)ggml_vq3_lut2_hi);     const __m512i perm_rep64 = _mm512_load_si512((const __m512i *)ggml_vq3_perm_rep64);     const __m512i shuf_sc_gather = _mm512_load_si512((const __m512i *)ggml_vq3_shuf_sc_gather);     const __m512i sc_rshift = _mm512_load_si512((const __m512i *)ggml_vq3_sc_rshift);     const __m512i mask_b01 = _mm512_set1_epi8(0x01);     const __m512i weights_sc = _mm512_load_si512((const __m512i *)ggml_vq3_weights_sc);     const __m512i sc_base2 = _mm512_set1_epi32(2);     const __m512i shuf_mult_i16 = _mm512_load_si512((const __m512i *)ggml_vq3_shuf_mult_i16);
+#define GGML_VQ3_0_VARS \
+    const __m512i zero512      = _mm512_setzero_si512(); \
+    const __m512i lut0_lo      = ggml_vq3_loadu_si512(ggml_vq3_lut0_lo); \
+    const __m512i lut0_hi      = ggml_vq3_loadu_si512(ggml_vq3_lut0_hi); \
+    const __m512i lut1_lo      = ggml_vq3_loadu_si512(ggml_vq3_lut1_lo); \
+    const __m512i lut1_hi      = ggml_vq3_loadu_si512(ggml_vq3_lut1_hi); \
+    const __m512i lut2_lo      = ggml_vq3_loadu_si512(ggml_vq3_lut2_lo); \
+    const __m512i lut2_hi      = ggml_vq3_loadu_si512(ggml_vq3_lut2_hi); \
+    const __m512i perm_rep64   = ggml_vq3_loadu_si512(ggml_vq3_perm_rep64); \
+    const __m512i shuf_mult512 = ggml_vq3_loadu_si512(ggml_vq3_shuf_mult512);
 
-#define GGML_VQ3_0_UNPACK_STEP(i)     const float d0 = fp16_to_fp32(x[i].d) * GGML_VQ3_G;     const __m512i raw_22   = _mm512_maskz_loadu_epi8(0x00000000003FFFFFULL, x[i].qs);     const __m512i gathered = _mm512_permutexvar_epi8(shuf_sc_gather, raw_22);     const __m512i bits01   = _mm512_and_si512(_mm512_srlv_epi16(gathered, sc_rshift), mask_b01);     const __m512i s8_i32   = _mm512_dpbusd_epi32(sc_base2, bits01, weights_sc);     const __m512i vmult    = _mm512_permutexvar_epi16(shuf_mult_i16, s8_i32);     __m512i t_idx          = _mm512_permutexvar_epi8(perm_rep64, raw_22);     t_idx                  = _mm512_mask2_permutex2var_epi8(lut1_lo, t_idx, 0x00000FFFFFC00000ULL, lut1_hi);     t_idx                  = _mm512_mask2_permutex2var_epi8(lut2_lo, t_idx, 0xFFFFF00000000000ULL, lut2_hi);     const __m512i q_s8     = _mm512_mask2_permutex2var_epi8(lut0_lo, t_idx, 0x00000000003FFFFFULL, lut0_hi);     const __m512i q_abs    = _mm512_abs_epi8(q_s8);     const __mmask64 neg_mask = _mm512_movepi8_mask(q_s8);
+#define GGML_VQ3_0_UNPACK_STEP(i) \
+    const float d0 = fp16_to_fp32(x[i].d) * GGML_VQ3_G; \
+    const __m512i raw_22 = _mm512_maskz_loadu_epi8(0x00000000003FFFFFULL, x[i].qs); \
+    const uint32_t s24 = (uint32_t)_mm512_movepi8_mask(raw_22) | \
+                         (((uint32_t)(x[i].qs[20] >> 6) & 1U) << 22) | \
+                         (((uint32_t)(x[i].qs[21] >> 6) & 1U) << 23); \
+    const uint64_t m_all = ggml_vq3_unpack_scales(s24); \
+    const __m512i vmult  = _mm512_shuffle_epi8(_mm512_set1_epi64((int64_t)m_all), shuf_mult512); \
+    __m512i t_idx        = _mm512_permutexvar_epi8(perm_rep64, raw_22); \
+    t_idx                = _mm512_mask2_permutex2var_epi8(lut1_lo, t_idx, 0x00000FFFFFC00000ULL, lut1_hi); \
+    t_idx                = _mm512_mask2_permutex2var_epi8(lut2_lo, t_idx, 0xFFFFF00000000000ULL, lut2_hi); \
+    const __m512i q_s8   = _mm512_mask2_permutex2var_epi8(lut0_lo, t_idx, 0x00000000003FFFFFULL, lut0_hi); \
+    const __m512i q_abs  = _mm512_abs_epi8(q_s8); \
+    const __mmask64 neg_mask = _mm512_movepi8_mask(q_s8);
 
 #define GGML_VQ3_0_DOT_COL(Y_PTR, ACC)     do {         const __m512 vd = _mm512_mask_broadcastss_ps(             _mm512_set1_ps(d0 * fp16_to_fp32((Y_PTR)[2 * i + 0].d)), 0xFF00,             _mm_set_ss(d0 * fp16_to_fp32((Y_PTR)[2 * i + 1].d)));         const __m512i q8_all = _mm512_inserti64x4(             _mm512_castsi256_si512(_mm256_loadu_si256((const __m256i *)(Y_PTR)[2 * i + 0].qs)),             _mm256_loadu_si256((const __m256i *)(Y_PTR)[2 * i + 1].qs), 1);         const __m512i q8_signed = _mm512_mask_sub_epi8(q8_all, neg_mask, zero512, q8_all);         const __m512i p = _mm512_maddubs_epi16(q_abs, q8_signed);         const __m512i s_i32 = _mm512_madd_epi16(p, vmult);         (ACC) = _mm512_fmadd_ps(vd, _mm512_cvtepi32_ps(s_i32), (ACC));     } while (0)
 

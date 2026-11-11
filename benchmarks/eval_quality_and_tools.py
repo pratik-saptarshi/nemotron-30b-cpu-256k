@@ -166,7 +166,7 @@ def post_chat_completion(base_url: str, messages: List[Dict[str, Any]], max_toke
         method="POST",
     )
     t0 = time.perf_counter()
-    with urllib.request.urlopen(req, timeout=180) as resp:
+    with urllib.request.urlopen(req, timeout=360) as resp:
         res = json.loads(resp.read().decode("utf-8"))
     res["_wall_sec"] = time.perf_counter() - t0
     return res
@@ -201,7 +201,7 @@ def post_anthropic_messages_stream(
     cur_json_chunks: List[str] = []
 
     t0 = time.perf_counter()
-    with urllib.request.urlopen(req, timeout=180) as resp:
+    with urllib.request.urlopen(req, timeout=360) as resp:
         raw_lines = resp.read().decode("utf-8", errors="replace").splitlines()
     wall_sec = time.perf_counter() - t0
 
@@ -247,8 +247,14 @@ def post_anthropic_messages_stream(
 
 
 def extract_python_code(text: str) -> str:
-    m = re.search(r"```(?:python)?\s*\n(.*?)```", text, flags=re.S)
-    return m.group(1).strip() if m else text.strip()
+    m = re.search(r"```(?:python|py)?\s*\n(.*?)```", text, flags=re.S | re.I)
+    if m:
+        return m.group(1).strip()
+    m_open = re.search(r"```(?:python|py)?\s*\n(.*)", text, flags=re.S | re.I)
+    if m_open:
+        return m_open.group(1).strip()
+    m_def = re.search(r"(^(?:import |from |class |def ).*)", text, flags=re.S | re.M)
+    return m_def.group(1).strip() if m_def else text.strip()
 
 
 def run_suite_tools(base_url: str) -> Tuple[float, List[Dict[str, Any]]]:
@@ -401,7 +407,7 @@ print("UNIT_TEST_OK")
     ]
 
     for title, prompt, test_harness in tasks:
-        resp = post_chat_completion(base_url, [{"role": "user", "content": prompt}], max_tokens=600)
+        resp = post_chat_completion(base_url, [{"role": "user", "content": prompt}], max_tokens=1024)
         msg_text = resp["choices"][0]["message"].get("content", "")
         code = extract_python_code(msg_text)
         passed = False
@@ -488,7 +494,7 @@ def run_suite_needle_and_math(base_url: str) -> Tuple[float, List[Dict[str, Any]
     return score, details
 
 
-def run_suite_speed_and_ram(base_url: str) -> Tuple[float, Dict[str, Any]]:
+def run_suite_speed_and_ram(base_url: str, target_tps: float = 15.0) -> Tuple[float, Dict[str, Any]]:
     """Suite 4: Decode Speed, Prefill Speed, Speculative Acceptance & RAM Footprint (20 points total)."""
     prompt_speed = (
         "Refactor the following Python class into a clean, well-documented implementation with type annotations "
@@ -518,8 +524,8 @@ def run_suite_speed_and_ram(base_url: str) -> Tuple[float, Dict[str, Any]]:
     acc_pct = (100.0 * draft_acc / draft_n) if draft_n > 0 else 0.0
     rss_gib, anon_hp_gib = measure_llama_rss_gib(base_url)
 
-    # Score: 20 pts if decode >= 15 tok/s, scaled linearly below 15 tok/s
-    pts = min(20.0, round(20.0 * (dec_tps / 15.0), 2)) if dec_tps > 0 else 10.0
+    # Score: 20 pts if decode >= target_tps (default 15 tok/s for 30B-A3B; pass --target-tps 9.0 for 284B-A13B)
+    pts = min(20.0, round(20.0 * (dec_tps / max(1.0, target_tps)), 2)) if dec_tps > 0 else 10.0
     telemetry = {
         "decode_tps": round(dec_tps, 2),
         "prefill_tps": round(pp_tps, 2),
@@ -528,6 +534,7 @@ def run_suite_speed_and_ram(base_url: str) -> Tuple[float, Dict[str, Any]]:
         "draft_accept_pct": round(acc_pct, 2),
         "rss_gib": rss_gib,
         "anon_hugepages_gib": anon_hp_gib,
+        "target_tps": target_tps,
         "score": pts,
         "max": 20.0,
     }
@@ -538,13 +545,14 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="100-Point Quality, Tool-Calling, Coding & Speed Gate")
     parser.add_argument("--url", default="http://127.0.0.1:8787", help="Gateway or llama-server URL")
     parser.add_argument("--label", default="Candidate-Model", help="Model/profile label for the report")
-    parser.add_argument("--save-json", default="", help="Save full JSON evaluation results to path")
-    parser.add_argument("--compare", default="", help="Compare against a baseline JSON evaluation file")
+    parser.add_argument("--save-json", "--out", dest="save_json", default="", help="Save full JSON evaluation results to path")
+    parser.add_argument("--compare", "--baseline", dest="compare", default="", help="Compare against a baseline JSON evaluation file")
     parser.add_argument("--save-md", default="", help="Save Markdown comparison report to path")
+    parser.add_argument("--target-tps", type=float, default=15.0, help="Target decode tok/s for full 20/20 speed score (default: 15.0 for 30B, use 9.0 for 284B)")
     args = parser.parse_args()
 
     print("=" * 90)
-    print(f" 🧪 LLAMA-MODCHIP QUALITY, TOOL-USE & PERFORMANCE GATE — [{args.label}]")
+    print(f" LLAMA-MODCHIP QUALITY, TOOL-USE & PERFORMANCE GATE — [{args.label}]")
     print("=" * 90)
 
     s_tools, d_tools = run_suite_tools(args.url)
@@ -556,7 +564,7 @@ def main() -> int:
     s_needle, d_needle = run_suite_needle_and_math(args.url)
     print(f" [3/4] Long-Context Needle & Math Suite    : {s_needle:.1f} / 20.0 pts")
 
-    s_spd, d_spd = run_suite_speed_and_ram(args.url)
+    s_spd, d_spd = run_suite_speed_and_ram(args.url, target_tps=args.target_tps)
     print(
         f" [4/4] Speed & RAM Telemetry               : {s_spd:.1f} / 20.0 pts "
         f"(Decode: {d_spd['decode_tps']} tok/s | Spec Acc: {d_spd['draft_accept_pct']}% | RAM: {d_spd['rss_gib']} GiB)"

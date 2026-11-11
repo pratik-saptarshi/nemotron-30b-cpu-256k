@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-lut_vq3_quantizer.py — LUT-VQ3-64 ("Turbo-Bus" 24-Byte / 3.00 bpw) 3D VQ & Mixed-Radix Engine
-=============================================================================================
+lut_vq3_quantizer.py — LUT-VQ3-64 (24-Byte / 3.00 bpw) 3D VQ & Mixed-Radix Reference Codec
+==========================================================================================
 Implements the 24-byte / 64-weight (`3.00 bpw`, -20.0% DDR5 memory bus traffic vs 30-byte
 `Fractal-64`) quantization family co-designed for AMD Zen 5 AVX-512 VBMI + VNNI:
 

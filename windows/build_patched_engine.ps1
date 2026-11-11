@@ -1,15 +1,20 @@
 param(
     [switch]$Cuda,
     [switch]$Clean,
+    [ValidateSet("dsv4", "nemotron")]
+    [string]$Target = "dsv4",
     [string]$Arch = "89",
     [string]$SrcRoot = ""
 )
 
-# Builds the patched llama.cpp engine needed by the Fractal-64 GGUF on Windows.
-# Stock llama.cpp cannot load it: the patch changes the Q2_0 block to 30 bytes / 64 weights.
+# Builds the patched llama.cpp engine needed by Fractal-64 (GGML_TYPE_Q2_0 = 42) and
+# LUT-VQ3-64 (GGML_TYPE_VQ3_0 = 43) GGUFs on Windows.
+# Stock llama.cpp cannot load them: the patch changes Q2_0 to 30 bytes / 64 weights
+# and adds VQ3_0 at 24 bytes / 64 weights.
 #
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File windows\build_patched_engine.ps1
+#   powershell -ExecutionPolicy Bypass -File windows\build_patched_engine.ps1 -Target nemotron
 #   powershell -ExecutionPolicy Bypass -File windows\build_patched_engine.ps1 -Cuda
 
 $ErrorActionPreference = "Stop"
@@ -19,7 +24,11 @@ $RepoRoot   = Split-Path -Parent $WindowsDir
 if (-not $SrcRoot) { $SrcRoot = Join-Path $RepoRoot "workspace" }
 
 $BaseCommit = "d2f83055d6e3b379b5d34c4837122a918cf402c2"
-$PatchFile  = Join-Path $RepoRoot "patches\deepseek-v4-flash-fractal-256k.patch"
+$PatchFile  = if ($Target -eq "nemotron") {
+    Join-Path $RepoRoot "patches\zen5-nemotron-256k-optimizations.patch"
+} else {
+    Join-Path $RepoRoot "patches\deepseek-v4-flash-fractal-256k.patch"
+}
 $Vq3Patch   = Join-Path $RepoRoot "patches\lut-vq3-64-avx512-vbmi.patch"
 $HeadersDir = Join-Path $RepoRoot "speculative\cpp"
 $LlamaDir   = Join-Path $SrcRoot "llama.cpp-src"
@@ -29,8 +38,8 @@ $BuildDir   = if ($Cuda) { Join-Path $LlamaDir "build-cuda" } else { Join-Path $
 function Fail([string]$Msg) { Write-Host "[!] $Msg" -ForegroundColor Red; exit 1 }
 
 Write-Host "================================================================================" -ForegroundColor Cyan
-Write-Host "  llama-modchip Windows engine build (Fractal Q2_0 GGUF)" -ForegroundColor Green
-Write-Host ("  Backend: {0}" -f $(if ($Cuda) { "CUDA sm_$Arch + CPU (MSVC)" } else { "CPU AVX-512 (MinGW-w64)" })) -ForegroundColor Green
+Write-Host "  llama-modchip v2.5.0 Windows engine build (Fractal-64 Q2_0 + LUT-VQ3-64 VQ3_0)" -ForegroundColor Green
+Write-Host ("  Target : {0} | Backend: {1}" -f $Target, $(if ($Cuda) { "CUDA sm_$Arch + CPU (MSVC)" } else { "CPU AVX-512 (MinGW-w64)" })) -ForegroundColor Green
 Write-Host "================================================================================" -ForegroundColor Cyan
 
 $git = (Get-Command git.exe -ErrorAction SilentlyContinue).Source
@@ -55,8 +64,12 @@ try {
     }
     Write-Host "[*] Resetting working tree ..." -ForegroundColor Cyan
     & $git checkout -q -- .
+    Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $LlamaDir "ggml\src\vq3_codebook.h")
+    Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $LlamaDir "src\llama-kv-cache-dsv4.cpp")
+    Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $LlamaDir "src\llama-kv-cache-dsv4.h")
+    Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $LlamaDir "src\models\deepseek4.cpp")
 
-    Write-Host "[*] Applying patches\deepseek-v4-flash-fractal-256k.patch ..." -ForegroundColor Cyan
+    Write-Host ("[*] Applying {0} ..." -f (Split-Path -Leaf $PatchFile)) -ForegroundColor Cyan
     & $git apply $PatchFile
     if ($LASTEXITCODE -ne 0) { Fail "Patch does not apply. Expected llama.cpp at $BaseCommit." }
 
@@ -69,6 +82,9 @@ try {
     Write-Host "[*] Copying RouteCrack headers into common\ ..." -ForegroundColor Cyan
     foreach ($h in "rc_predictor.h", "rc_stockfish.h", "rc_trie_v2.h") {
         Copy-Item (Join-Path $HeadersDir $h) (Join-Path $LlamaDir "common\$h") -Force
+    }
+    if ($Target -eq "nemotron") {
+        Copy-Item (Join-Path $HeadersDir "ngram-map.cpp") (Join-Path $LlamaDir "common\ngram-map.cpp") -Force
     }
 
     # --- Windows / MSVC portability fixes ------------------------------------
