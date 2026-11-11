@@ -119,6 +119,12 @@ static inline int mc_ctz32(unsigned int v) {
             $lines.InsertRange($end + 1, [string[]]@(
                 '',
                 '// MSVC-compatible counterparts for the modchip additions',
+                '#if defined(_WIN32)',
+                '#include <io.h>',
+                '#ifndef F_OK',
+                '#define F_OK 0',
+                '#endif',
+                '#endif',
                 '#if defined(_MSC_VER)',
                 '#define MC_TLS __declspec(thread)',
                 '#else',

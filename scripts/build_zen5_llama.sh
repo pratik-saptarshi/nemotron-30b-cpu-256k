@@ -125,6 +125,19 @@ if [[ "$SERIES_APPLIED" != "1" && ${#SERIES_PATCHES[@]} -gt 0 ]]; then
     done
 fi
 
+VQ3_PATCH="${REPO_ROOT}/patches/lut-vq3-64-avx512-vbmi.patch"
+if [[ -f "$VQ3_PATCH" ]]; then
+    if git -C "$LLAMA_DIR" apply --reverse --check "$VQ3_PATCH" 2>/dev/null; then
+        echo "[i] LUT-VQ3-64 (VQ3_0) patch already applied in $LLAMA_DIR."
+    elif git -C "$LLAMA_DIR" apply --check "$VQ3_PATCH" 2>/dev/null; then
+        git -C "$LLAMA_DIR" apply "$VQ3_PATCH"
+        echo "[+] Applied patches/lut-vq3-64-avx512-vbmi.patch (GGML_TYPE_VQ3_0 = 43 + vq3_codebook.h)."
+    else
+        echo "[!] ERROR: Failed to apply $VQ3_PATCH onto $LLAMA_DIR." >&2
+        exit 1
+    fi
+fi
+
 CMAKE_ISA_ARGS=(-DGGML_NATIVE="${GGML_NATIVE:-ON}" -DBUILD_SHARED_LIBS=ON)
 
 if [[ "$OS_NAME" == "Darwin" ]]; then
