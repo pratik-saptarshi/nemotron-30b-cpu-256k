@@ -107,12 +107,12 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="Build Nemotron-3.5-30B-A3B LUT-VQ3-64 + Fractal-64 hybrid GGUF")
     ap.add_argument(
         "--fractal-gguf",
-        default=os.environ.get("NEMOTRON_FRACTAL_GGUF", "/opt/models/nemotron/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-Fractal-64.gguf"),
+        default=os.environ.get("NEMOTRON_FRACTAL_GGUF", "./workspace/models/NVIDIA-Nemotron-3.5-30B-A3B-Fractal-64.gguf"),
         help="Input Fractal-64 GGUF path",
     )
     ap.add_argument(
         "--bf16-gguf",
-        default=os.environ.get("NEMOTRON_BF16_GGUF", "/usr/share/ollama/.ollama/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16.gguf"),
+        default=os.environ.get("NEMOTRON_BF16_GGUF", "./workspace/models/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16.gguf"),
         help="Input BF16 master GGUF path",
     )
     ap.add_argument(

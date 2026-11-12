@@ -144,7 +144,7 @@ python3 scripts/build_dsv4_vq3.py --src-dir /path/to/Fractal-shards --dst-dir /p
 
 ## 6. 4-Level Register (`ZMM` AVX-512BW/VBMI) + L1D + L2 + L3 Whole-Model Prefill & Agentic KV-Cache Tiling
 
-To accelerate prompt prefill ($N > 1$) and multi-turn agentic workflows without altering numerical output (`100%` lossless), the CPU execution pipeline tiles across all four levels of the Zen 4 / Zen 5 cache hierarchy:
+To accelerate prompt prefill ($N > 1$) and multi-turn agentic workflows without altering numerical output relative to the single-column kernel (`bit-identical` GEMM tiling), the CPU execution pipeline tiles across all four levels of the Zen 4 / Zen 5 cache hierarchy:
 
 1. **Level 0 — 512-Bit `ZMM` Register-Stationary Multi-Column Kernels (`_1x8`, `_1x4`, `_1x3`, `_1x2`, `1x1`) Across All Quantized Formats**:
    - Implemented in `ggml/src/ggml-cpu/quants.c` (`Q2_0`, `VQ3_0`) and `ggml/src/ggml-cpu/arch/x86/quants.c` (`IQ1_S`, `IQ2_XXS`, `IQ1_M`, `Q5_K`, `Q6_K`, `VQ3_0`).

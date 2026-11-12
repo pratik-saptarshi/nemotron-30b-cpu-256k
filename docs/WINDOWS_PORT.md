@@ -16,7 +16,7 @@ E llama_model_load: error loading model: check_tensor_dims: tensor 'blk.0.attn_k
   has offset 596983872, expected 596590656
 ```
 
-`Fractal-64` (`type 42`) uses a custom **30 bytes / 64 weights** block layout (`2B` fp16 super-scale + `4B` 8×4-bit sub-scales + `16B` low bits + `8B` high bits) instead of an 18-byte upstream block, and `LUT-VQ3-64` (`type 43`) adds a **24 bytes / 64 weights** 3D vector-quantized block (`2B` fp16 super-scale + `3B` 8×3-bit sub-scales + `19B` 3D/2D codebook indices). Upstream loaders reject `type 43` outright and miscalculate offsets on `type 42`.
+`Fractal-64` (`type 42`) redefines upstream `GGML_TYPE_Q2_0` (`18 bytes`) to a custom **30 bytes / 64 weights** block layout (`2B` fp16 super-scale + `4B` 8×4-bit sub-scales + `16B` low bits + `8B` high bits), and `LUT-VQ3-64` (`type 43`) adds a **24 bytes / 64 weights** 3D vector-quantized block (`2B` fp16 super-scale + `22B` `qs[22]` packing `20×7-bit` 3D + `2×6-bit` 2D codebook indices in the low 7 bits and `8×3-bit` sub-scales across bit 7 + tail half-codebooks). Upstream loaders reject `type 43` with `unknown tensor type 43` and fail with tensor dimension/offset mismatches (or corrupt reads) on `type 42`.
 
 ## 2. What had to change for Windows
 
@@ -58,7 +58,7 @@ Key flags: `-DGGML_NATIVE=ON -DGGML_OPENMP=OFF -DBUILD_SHARED_LIBS=OFF -DCMAKE_E
 
 | Configuration | pp512 | tg128 |
 | :--- | ---: | ---: |
-| CPU, Top-K 6 (lossless) | 21.3 tok/s | 6.35 ± 0.29 tok/s |
+| CPU, Top-K 6 (unpruned) | 21.3 tok/s | 6.35 ± 0.29 tok/s |
 | CPU, Top-K 4 (pruned) | 21.1 tok/s | 8.04 ± 0.45 tok/s |
 | CPU, 16 threads (SMT) | — | 6.41 tok/s (no gain) |
 | GPU offload, 5 MoE layers in VRAM | 5.2 | 2.65 tok/s |

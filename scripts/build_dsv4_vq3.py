@@ -232,7 +232,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="Build DeepSeek-V4-Flash-0731 LUT-VQ3-64 + Fractal-64 hybrid 3-shard GGUF")
     ap.add_argument(
         "--input-dir",
-        default=os.environ.get("DSV4_FRACTAL_DIR", "/opt/models/deepseek-v4"),
+        default=os.environ.get("DSV4_FRACTAL_DIR", "./workspace/models"),
         help="Directory containing DeepSeek-V4-Flash-0731-Fractal-0000{1..3}-of-00003.gguf",
     )
     ap.add_argument(

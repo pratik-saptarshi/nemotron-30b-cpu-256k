@@ -69,7 +69,7 @@ foreach ($ctx in $contexts) {
 
     # exact preset: all 6 experts
     Write-PresetBat -file ("ctx{0}_exact.bat" -f $ctx) -ctx "$ctx" -extra "" -title "DSV4 $label exact"
-    New-Link -lnk (Join-Path $sub "точный — 6.3 tok-s.lnk") -target (Join-Path $PresetDir ("ctx{0}_exact.bat" -f $ctx)) -desc "ctx $ctx, MoE Top-K 6 (lossless)"
+    New-Link -lnk (Join-Path $sub "точный — 6.3 tok-s.lnk") -target (Join-Path $PresetDir ("ctx{0}_exact.bat" -f $ctx)) -desc "ctx $ctx, MoE Top-K 6 (unpruned)"
 
     $made += (Join-Path $sub "быстрый — 8 tok-s.lnk")
     $made += (Join-Path $sub "точный — 6.3 tok-s.lnk")

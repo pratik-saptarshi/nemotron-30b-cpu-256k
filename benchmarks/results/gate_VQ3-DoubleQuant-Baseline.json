@@ -1,0 +1,122 @@
+{
+  "label": "VQ3-DoubleQuant-Baseline",
+  "timestamp": "2026-11-11T22:45:13+0000",
+  "total_score": 76.2,
+  "quality_score_80": 64.0,
+  "suites": {
+    "tools_30": 24.0,
+    "coding_30": 20.0,
+    "needle_math_20": 20.0,
+    "speed_ram_20": 12.2
+  },
+  "telemetry": {
+    "decode_tps": 9.15,
+    "prefill_tps": 35.64,
+    "draft_n": 74,
+    "draft_accepted": 54,
+    "draft_accept_pct": 72.97,
+    "rss_gib": 58.61,
+    "anon_hugepages_gib": 0.0,
+    "score": 12.2,
+    "max": 20.0
+  },
+  "details": {
+    "tools": [
+      {
+        "test": "1.1 Read + Integer Schema Coercion",
+        "score": 6.0,
+        "max": 6.0,
+        "call": {
+          "id": "WZr3DckVJUE0jCg7om7B1RQtME1CrMww",
+          "name": "Read",
+          "input": {
+            "file_path": "/opt/app/config.py",
+            "offset": 50,
+            "limit": 25
+          }
+        }
+      },
+      {
+        "test": "1.2 Grep Pattern + Path",
+        "score": 6.0,
+        "max": 6.0,
+        "call": {
+          "id": "0IpvaBjHwsYDjYS9WW1MVMkXdnGHcxsK",
+          "name": "Grep",
+          "input": {
+            "pattern": "def verify_token",
+            "path": "/src/auth"
+          }
+        }
+      },
+      {
+        "test": "1.3 Edit + Boolean Coercion",
+        "score": 0.0,
+        "max": 6.0,
+        "call": {}
+      },
+      {
+        "test": "1.4 Write Code Serialization",
+        "score": 6.0,
+        "max": 6.0,
+        "call": {
+          "id": "gZrDywUeAmV056prLTvlf4mcWb11NWGp",
+          "name": "Write",
+          "input": {
+            "file_path": "/tmp/hello_test.py",
+            "content": "print(\"Hello, World!\")"
+          }
+        }
+      },
+      {
+        "test": "1.5 Multi-Turn Tool Result Consumption",
+        "score": 6.0,
+        "max": 6.0,
+        "call": {
+          "id": "sy6K26QZOWX2tvVWubMSNYmJHV9qJJ44",
+          "name": "Bash",
+          "input": {
+            "command": "curl http://127.0.0.1:9094/health"
+          }
+        }
+      }
+    ],
+    "coding": [
+      {
+        "test": "2.1 Thread-Safe LRU Cache",
+        "score": 0.0,
+        "max": 10.0,
+        "passed": false,
+        "error": "  File \"/tmp/tmpex2ofgnx.py\", line 1\n    ```python\n    ^\nSyntaxError: invalid syntax\n"
+      },
+      {
+        "test": "2.2 Merge Overlapping Intervals",
+        "score": 10.0,
+        "max": 10.0,
+        "passed": true,
+        "error": ""
+      },
+      {
+        "test": "2.3 Fix Binary Search Overflow & Boundary Bug",
+        "score": 10.0,
+        "max": 10.0,
+        "passed": true,
+        "error": ""
+      }
+    ],
+    "needle_math": [
+      {
+        "test": "3.1 Long-Context Needle Retrieval (Code + Port)",
+        "score": 10.0,
+        "max": 10.0,
+        "prompt_tokens": 3038,
+        "prefill_tps": 30.25
+      },
+      {
+        "test": "3.2 Exact Hybrid KV Cache Arithmetic (1536 MiB)",
+        "score": 10.0,
+        "max": 10.0
+      }
+    ]
+  }
+}

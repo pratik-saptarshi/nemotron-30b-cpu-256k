@@ -181,8 +181,16 @@ else
     OPENMP_OPT="${GGML_OPENMP:-ON}"
     CMAKE_ISA_ARGS+=(-DGGML_OPENMP="${OPENMP_OPT}")
 
+    PORTABLE_LINK_ARGS=()
+    if [[ "${PORTABLE_STATIC:-0}" == "1" ]]; then
+        PORTABLE_LINK_ARGS=(
+            -DLLAMA_OPENSSL=OFF
+            -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++ -static-libgcc"
+        )
+    fi
+
     if [[ "${PORTABLE_X86_ISA:-}" == "avx2" ]]; then
-        echo "[*] Building portable x86-64-v3 (AVX2 + FMA + F16C + BMI2, zero AVX-512 instructions)..."
+        echo "[*] Building portable x86-64-v3 (Haswell+: AVX2 + FMA + F16C + BMI2, zero AVX-512 instructions)..."
         CMAKE_ISA_ARGS=(
             -DGGML_NATIVE=OFF
             -DBUILD_SHARED_LIBS="${BUILD_SHARED_LIBS:-ON}"
@@ -191,15 +199,17 @@ else
             -DGGML_AVX512_VBMI=OFF
             -DGGML_AVX512_VNNI=OFF
             -DGGML_AVX512_BF16=OFF
+            -DGGML_AVX_VNNI=OFF
             -DGGML_AVX2=ON
             -DGGML_FMA=ON
             -DGGML_F16C=ON
             -DGGML_BMI2=ON
-            -DCMAKE_C_FLAGS="-march=x86-64-v3 -mno-avx512f -mno-avxvnni"
-            -DCMAKE_CXX_FLAGS="-march=x86-64-v3 -mno-avx512f -mno-avxvnni"
+            -DCMAKE_C_FLAGS="-march=haswell -mno-avx512f"
+            -DCMAKE_CXX_FLAGS="-march=haswell -mno-avx512f"
+            "${PORTABLE_LINK_ARGS[@]}"
         )
     elif [[ "${PORTABLE_X86_ISA:-}" == "avx512" ]]; then
-        echo "[*] Building portable x86-64-v4 + AVX-512 VBMI/VNNI/BF16 (Zen 4/5 & Ice Lake+)..."
+        echo "[*] Building portable x86-64-v4 + AVX-512 VBMI/VNNI (Zen 4/5 & Ice Lake+, zero AVX512-BF16)..."
         CMAKE_ISA_ARGS=(
             -DGGML_NATIVE=OFF
             -DBUILD_SHARED_LIBS="${BUILD_SHARED_LIBS:-ON}"
@@ -207,13 +217,15 @@ else
             -DGGML_AVX512=ON
             -DGGML_AVX512_VBMI=ON
             -DGGML_AVX512_VNNI=ON
-            -DGGML_AVX512_BF16=ON
+            -DGGML_AVX512_BF16=OFF
+            -DGGML_AVX_VNNI=OFF
             -DGGML_AVX2=ON
             -DGGML_FMA=ON
             -DGGML_F16C=ON
             -DGGML_BMI2=ON
-            -DCMAKE_C_FLAGS="-march=x86-64-v4 -mavx512vbmi -mavx512vnni -mavx512bf16"
-            -DCMAKE_CXX_FLAGS="-march=x86-64-v4 -mavx512vbmi -mavx512vnni -mavx512bf16"
+            -DCMAKE_C_FLAGS="-march=skylake-avx512 -mavx512vbmi -mavx512vnni"
+            -DCMAKE_CXX_FLAGS="-march=skylake-avx512 -mavx512vbmi -mavx512vnni"
+            "${PORTABLE_LINK_ARGS[@]}"
         )
     elif echo "$CPU_FLAGS" | grep -q "avx512_vnni" && echo "$CPU_FLAGS" | grep -q "avx512_bf16"; then
         echo "[*] Detected AVX-512 VNNI + BF16 (AMD Zen 4/5 or Intel Xeon) — enabling AVX-512 tile kernels..."

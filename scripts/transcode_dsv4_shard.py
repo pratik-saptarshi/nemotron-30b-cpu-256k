@@ -5,7 +5,7 @@ def _load_transcode_lib():
     candidates = [
         os.environ.get("LIBTRANSCODE_DSV4_SO", ""),
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "libtranscode_dsv4.so"),
-        "/opt/models/deepseek-v4/libtranscode_dsv4.so",
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "workspace", "bin", "libtranscode_dsv4.so"),
     ]
     for path in candidates:
         if path and os.path.exists(path):

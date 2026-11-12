@@ -26,7 +26,7 @@
 #      100% resident in the 64 MB Zen 5 L3 cache across tokens.
 #   3. 6 GQA Attention Layers & Output Head:
 #      Preserved at exact Q8_0 / F32 (`attn_q`, `attn_k`, `attn_v`, `attn_output`,
-#      `output.weight`, `ffn_gate_inp.weight`) for lossless 256K needle retrieval
+#      `output.weight`, `ffn_gate_inp.weight`) for high-fidelity 256K needle retrieval
 #      and deterministic JSON tool calling.
 # ==============================================================================
 set -euo pipefail

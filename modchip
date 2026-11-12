@@ -35,11 +35,13 @@ if [[ -z "${GATEWAY_HOST:-}" ]] && [[ -f "$GATEWAY_HOST_FILE" ]]; then
     GATEWAY_HOST="$(head -n 1 "$GATEWAY_HOST_FILE" 2>/dev/null | tr -d '[:space:]')"
 fi
 GATEWAY_HOST="${GATEWAY_HOST:-127.0.0.1}"
-DSV4_ABLIT_MODEL="${WORKSPACE_DIR}/models/dsv4-abliterated-fractal/DeepSeek-V4-Flash-0731-Abliterated-Fractal-00001-of-00003.gguf"
+DSV4_MAXQ_MODEL="${WORKSPACE_DIR}/models/dsv4-maxq-fractal/DeepSeek-V4-Flash-0731-MaxQ-Fractal-00001-of-00003.gguf"
 DSV4_VQ3_MODEL="${WORKSPACE_DIR}/models/dsv4-vq3/DeepSeek-V4-Flash-0731-VQ3-00001-of-00003.gguf"
 DSV4_FRACTAL_MODEL="${WORKSPACE_DIR}/models/dsv4-fractal/DeepSeek-V4-Flash-0731-Fractal-00001-of-00003.gguf"
+DSV4_ABLIT_MODEL="${WORKSPACE_DIR}/models/dsv4-abliterated-fractal/DeepSeek-V4-Flash-0731-Abliterated-Fractal-00001-of-00003.gguf"
 VQ3_MODEL="${WORKSPACE_DIR}/models/NVIDIA-Nemotron-3.5-30B-A3B-VQ3-64.gguf"
 FRACTAL_MODEL="${WORKSPACE_DIR}/models/NVIDIA-Nemotron-3.5-30B-A3B-Fractal-64.gguf"
+NEMOTRON_ABLIT_MODEL="${WORKSPACE_DIR}/models/NVIDIA-Nemotron-3.5-30B-A3B-Abliterated-VQ3-64.gguf"
 Q4_MODEL="${WORKSPACE_DIR}/models/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-Q4_0.gguf"
 DEFAULT_MODEL_FILE="${PID_DIR}/default_model"
 
@@ -50,18 +52,20 @@ resolve_default_model() {
     fi
     if [[ -n "$saved" && -f "$saved" ]]; then
         printf '%s\n' "$saved"
-    elif [[ -f "$DSV4_ABLIT_MODEL" ]]; then
-        printf '%s\n' "$DSV4_ABLIT_MODEL"
-    elif [[ -f "/opt/models/deepseek-v4/lcc/DeepSeek-V4-Flash-0731-Abliterated-Fractal-00001-of-00003.gguf" ]]; then
-        printf '%s\n' "/opt/models/deepseek-v4/lcc/DeepSeek-V4-Flash-0731-Abliterated-Fractal-00001-of-00003.gguf"
+    elif [[ -f "$DSV4_MAXQ_MODEL" ]]; then
+        printf '%s\n' "$DSV4_MAXQ_MODEL"
     elif [[ -f "$DSV4_VQ3_MODEL" ]]; then
         printf '%s\n' "$DSV4_VQ3_MODEL"
     elif [[ -f "$DSV4_FRACTAL_MODEL" ]]; then
         printf '%s\n' "$DSV4_FRACTAL_MODEL"
+    elif [[ -f "$DSV4_ABLIT_MODEL" ]]; then
+        printf '%s\n' "$DSV4_ABLIT_MODEL"
     elif [[ -f "$VQ3_MODEL" ]]; then
         printf '%s\n' "$VQ3_MODEL"
     elif [[ -f "$FRACTAL_MODEL" ]]; then
         printf '%s\n' "$FRACTAL_MODEL"
+    elif [[ -f "$NEMOTRON_ABLIT_MODEL" ]]; then
+        printf '%s\n' "$NEMOTRON_ABLIT_MODEL"
     else
         printf '%s\n' "$Q4_MODEL"
     fi
@@ -280,7 +284,7 @@ cmd_start() {
     local ready=0
     local srv_pid=""
     [[ -f "$SERVER_PID_FILE" ]] && srv_pid="$(cat "$SERVER_PID_FILE" 2>/dev/null || true)"
-    for _ in $(seq 1 90); do
+    for _ in $(seq 1 240); do
         if curl -sf --max-time 2 "http://${probe_server_host}:${SERVER_PORT}/health" >/dev/null 2>&1; then
             echo -e " ${GREEN}${BOLD}READY!${RESET}"
             ready=1
@@ -303,7 +307,7 @@ cmd_start() {
     fi
 
     echo -e "${BOLD}${GREEN}╔══════════════════════════════════════════════════════════════════════════════╗${RESET}"
-    echo -e "${BOLD}${GREEN}║    llama-modchip v2.5.0 is LIVE — Choose how you want to interact:           ║${RESET}"
+    echo -e "${BOLD}${GREEN}║    llama-modchip v2.5.1 is LIVE — Choose how you want to interact:           ║${RESET}"
     echo -e "${BOLD}${GREEN}╠══════════════════════════════════════════════════════════════════════════════╣${RESET}"
     echo -e "  🌐 ${BOLD}Live Web Chat & Telemetry HUD${RESET} : ${CYAN}http://${GATEWAY_HOST}:${GATEWAY_PORT}${RESET}"
     echo -e "  💬 ${BOLD}Interactive Terminal Chat${RESET}     : ${GREEN}./modchip chat${RESET}"
@@ -432,9 +436,15 @@ cmd_quantize() {
     if [[ "${1:-}" == "--vq3-nemotron" ]]; then
         shift
         exec python3 "${REPO_ROOT}/scripts/build_nemotron_vq3.py" "$@"
+    elif [[ "${1:-}" == "--ablit-nemotron" ]]; then
+        shift
+        exec python3 "${REPO_ROOT}/scripts/build_nemotron_abliterated_vq3.py" "$@"
     elif [[ "${1:-}" == "--vq3-dsv4" ]]; then
         shift
         exec python3 "${REPO_ROOT}/scripts/build_dsv4_vq3.py" "$@"
+    elif [[ "${1:-}" == "--maxq-dsv4" ]]; then
+        shift
+        exec python3 "${REPO_ROOT}/scripts/build_dsv4_maxq_singlepass.py" "$@"
     fi
     exec "${REPO_ROOT}/scripts/build_fractal_moe_gguf.sh" "$@"
 }
@@ -456,7 +466,10 @@ cmd_claude() {
     local raw_model model_id model_banner
     raw_model="$(curl -sf --max-time 1 "${ep}/v1/models" 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); m=(d.get("data") or d.get("models") or [{}])[0]; print(m.get("id") or m.get("name") or "")' 2>/dev/null || true)"
     if [[ "$raw_model" == *[Dd]eep[Ss]eek* ]]; then
-        if [[ "$raw_model" == *[Aa]bliterated* ]]; then
+        if [[ "$raw_model" == *[Mm]ax[Qq]* ]]; then
+            model_id="DeepSeek-V4-Flash-0731-MaxQ-Fractal-284B"
+            model_banner="DeepSeek-V4-Flash-0731-MaxQ-Fractal (284B-A13B MoE · Single-Pass Q6_K + Fractal-64 · 64GB CPU)"
+        elif [[ "$raw_model" == *[Aa]bliterated* ]]; then
             model_id="DeepSeek-V4-Flash-0731-Abliterated-Fractal-284B"
             model_banner="DeepSeek-V4-Flash-0731-Abliterated-Fractal (284B-A13B MoE · Single-Pass Q6_K + Fractal-64 · 64GB CPU)"
         elif [[ "$raw_model" == *[Vv][Qq]3* ]]; then
@@ -467,7 +480,10 @@ cmd_claude() {
             model_banner="DeepSeek-V4-Flash-0731-Fractal (284B-A13B MoE · Fractal-64 · 64GB CPU)"
         fi
     elif [[ "$raw_model" == *[Nn]emotron* ]]; then
-        if [[ "$raw_model" == *[Vv][Qq]3* ]]; then
+        if [[ "$raw_model" == *[Aa]bliterated* ]]; then
+            model_id="NVIDIA-Nemotron-3.5-30B-A3B-Abliterated-VQ3-64"
+            model_banner="NVIDIA-Nemotron-3.5-30B-A3B-Abliterated-VQ3-64 (30B-A3B Hybrid Mamba-2 · VQ3-64 · 256K CPU)"
+        elif [[ "$raw_model" == *[Vv][Qq]3* ]]; then
             model_id="NVIDIA-Nemotron-3.5-30B-A3B-VQ3-64"
             model_banner="NVIDIA-Nemotron-3.5-30B-A3B-VQ3-64 (30B-A3B Hybrid Mamba-2 · VQ3-64 · 256K CPU)"
         else
@@ -478,22 +494,18 @@ cmd_claude() {
         model_id="$(basename "$raw_model" .gguf | sed -E 's/-00001-of-[0-9]+$//')"
         model_banner="$model_id"
     else
-        model_id="DeepSeek-V4-Flash-0731-Abliterated-Fractal-284B"
-        model_banner="DeepSeek-V4-Flash-0731-Abliterated-Fractal (284B-A13B MoE · 64GB CPU)"
+        model_id="DeepSeek-V4-Flash-0731-MaxQ-Fractal-284B"
+        model_banner="DeepSeek-V4-Flash-0731-MaxQ-Fractal (284B-A13B MoE · 64GB CPU)"
     fi
 
     local extra_flags=(
-        --dangerously-skip-permissions
         --setting-sources "user"
         --model "${model_id}"
         --tools default
-        --system-prompt "You are Claude Code, an interactive software engineering and security research agent."
+        --system-prompt "You are Claude Code, an interactive software engineering assistant."
     )
-    if [[ -f "${HOME}/.crystalline/claude_mcp.json" ]]; then
-        extra_flags+=(--mcp-config "${HOME}/.crystalline/claude_mcp.json")
-    fi
-    if [[ -d "${HOME}/.claude/skills/think" ]]; then
-        extra_flags+=(--plugin-dir "${HOME}/.claude/skills/think")
+    if [[ "${MODCHIP_CLAUDE_SKIP_PERMS:-0}" == "1" ]]; then
+        extra_flags=(--dangerously-skip-permissions "${extra_flags[@]}")
     fi
 
     echo -e "${GREEN}[*] Launching Claude Code — ${BOLD}${model_banner}${RESET}"
@@ -511,25 +523,49 @@ cmd_download_bin() {
     local flags=""
     [[ -r /proc/cpuinfo ]] && flags="$(grep -m1 -E '^flags' /proc/cpuinfo || true)"
     local isa_suffix="avx2"
+    local srv_sha256="0001a63c29b2eb3a9438008c8757336b392eb647ef4cd966af7f6b295c527c64"
+    local cli_sha256="d1f65c6159e9a732ce906caafaceab6027426858c4c1137abc63f3bed8f415dd"
     if echo "$flags" | grep -q "avx512f" && echo "$flags" | grep -qE "avx512_?vbmi"; then
         isa_suffix="avx512"
+        srv_sha256="fffd7dad3fe28c45d8b9f42c5067e14431ace1b77eeac5106cb0a9948c7d5bc2"
+        cli_sha256="f312a0e82d2b4e43fc9d40c0302e187a74d24f85a80d012e1ac6ae5eea2958f1"
     elif ! echo "$flags" | grep -q "avx2"; then
         echo -e "${YELLOW}[!] CPU lacks AVX2; run './modchip setup' to compile scalar/AVX1 fallback from source.${RESET}"
         exit 1
     fi
     local srv_asset="llama-server-modchip-linux-x86_64-${isa_suffix}"
     local cli_asset="llama-cli-modchip-linux-x86_64-${isa_suffix}"
-    local base_url="https://github.com/synchopate/llama-modchip/releases/download/v2.5.0"
-    echo -e "${CYAN}[*] CPUID detected '${isa_suffix}' ISA — downloading ${srv_asset} & ${cli_asset}...${RESET}"
-    curl -fL --progress-bar -o "${dest_dir}/${srv_asset}" "${base_url}/${srv_asset}"
-    chmod +x "${dest_dir}/${srv_asset}"
+    local base_url="https://github.com/synchopate/llama-modchip/releases/download/v2.5.1"
+    echo -e "${CYAN}[*] CPUID detected '${isa_suffix}' ISA — downloading portable ${srv_asset} & ${cli_asset}...${RESET}"
+    curl -fL --progress-bar -o "${dest_dir}/${srv_asset}.part" "${base_url}/${srv_asset}"
+    local actual_srv_sha
+    actual_srv_sha="$(sha256sum "${dest_dir}/${srv_asset}.part" | awk '{print $1}')"
+    if [[ "$actual_srv_sha" != "$srv_sha256" ]]; then
+        echo -e "${YELLOW}[!] SHA-256 mismatch on ${srv_asset} (expected ${srv_sha256}, got ${actual_srv_sha})!${RESET}" >&2
+        rm -f "${dest_dir}/${srv_asset}.part"
+        exit 1
+    fi
+    chmod +x "${dest_dir}/${srv_asset}.part"
+    if ! "${dest_dir}/${srv_asset}.part" --version >/dev/null 2>&1; then
+        echo -e "${YELLOW}[!] Downloaded ${srv_asset} failed --version check on this host; run './modchip setup --source' to compile natively.${RESET}" >&2
+        rm -f "${dest_dir}/${srv_asset}.part"
+        exit 1
+    fi
+    mv -f "${dest_dir}/${srv_asset}.part" "${dest_dir}/${srv_asset}"
     ln -sf "${srv_asset}" "${dest_dir}/llama-server-modchip-linux-x86_64"
     cp -f "${dest_dir}/${srv_asset}" "${WORKSPACE_DIR}/bin/llama-server-nemotron" 2>/dev/null || true
-    if curl -fL --progress-bar -o "${dest_dir}/${cli_asset}" "${base_url}/${cli_asset}"; then
-        chmod +x "${dest_dir}/${cli_asset}"
-        ln -sf "${cli_asset}" "${dest_dir}/llama-cli-modchip-linux-x86_64"
+    if curl -fL --progress-bar -o "${dest_dir}/${cli_asset}.part" "${base_url}/${cli_asset}"; then
+        local actual_cli_sha
+        actual_cli_sha="$(sha256sum "${dest_dir}/${cli_asset}.part" | awk '{print $1}')"
+        if [[ "$actual_cli_sha" == "$cli_sha256" ]]; then
+            chmod +x "${dest_dir}/${cli_asset}.part"
+            mv -f "${dest_dir}/${cli_asset}.part" "${dest_dir}/${cli_asset}"
+            ln -sf "${cli_asset}" "${dest_dir}/llama-cli-modchip-linux-x86_64"
+        else
+            rm -f "${dest_dir}/${cli_asset}.part"
+        fi
     fi
-    echo -e "${GREEN}[✓] Installed ${dest_dir}/${srv_asset} (symlinked as llama-server-modchip-linux-x86_64)${RESET}"
+    echo -e "${GREEN}[✓] Installed & verified ${dest_dir}/${srv_asset} (SHA-256 + --version OK)${RESET}"
 }
 
 cmd_tui() {

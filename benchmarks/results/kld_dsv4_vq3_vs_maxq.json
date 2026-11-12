@@ -1,0 +1,108 @@
+{
+  "timestamp": "2026-11-12T12:11:05+0000",
+  "kld": {
+    "num_probes": 12,
+    "mean_kld_nats": 0.830249,
+    "equiv_ppl_delta_pct": 129.389,
+    "top1_agreement_pct": 75.0,
+    "top5_agreement_pct": 100.0,
+    "probes": [
+      {
+        "probe": "C_SIMD_Dot",
+        "kld_nats": 0.110313,
+        "ref_top1": " _",
+        "cand_top1": " _",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "Py_Async_Pool",
+        "kld_nats": 0.197006,
+        "ref_top1": " fn",
+        "cand_top1": " fn",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "Py_LRU_Lock",
+        "kld_nats": 2.645744,
+        "ref_top1": " key",
+        "cand_top1": " key",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "SQL_Window_Rank",
+        "kld_nats": 0.242367,
+        "ref_top1": "3",
+        "cand_top1": "3",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "Math_Euler_Totient",
+        "kld_nats": 1.20434,
+        "ref_top1": "30",
+        "cand_top1": "8",
+        "top1_match": false,
+        "top5_match": true
+      },
+      {
+        "probe": "Systems_KV_Bandwidth",
+        "kld_nats": 1.228097,
+        "ref_top1": "612",
+        "cand_top1": "612",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "JSON_Tool_Schema",
+        "kld_nats": 0.60132,
+        "ref_top1": " \\\"",
+        "cand_top1": " false",
+        "top1_match": false,
+        "top5_match": true
+      },
+      {
+        "probe": "Rust_Lifetime_Slice",
+        "kld_nats": 0.838697,
+        "ref_top1": "if",
+        "cand_top1": "if",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "Linux_Proc_Meminfo",
+        "kld_nats": 0.736911,
+        "ref_top1": " (",
+        "cand_top1": " (",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "Quant_Lloyd_Max",
+        "kld_nats": 0.225601,
+        "ref_top1": "1",
+        "cand_top1": "1",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "Algo_Dijkstra_Heap",
+        "kld_nats": 1.589256,
+        "ref_top1": "V",
+        "cand_top1": "?",
+        "top1_match": false,
+        "top5_match": true
+      },
+      {
+        "probe": "HTTP_Chunked_Parser",
+        "kld_nats": 0.343333,
+        "ref_top1": " smuggling",
+        "cand_top1": " smuggling",
+        "top1_match": true,
+        "top5_match": true
+      }
+    ]
+  }
+}

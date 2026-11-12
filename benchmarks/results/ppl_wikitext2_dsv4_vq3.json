@@ -1,0 +1,12 @@
+{
+  "timestamp": "2026-11-12T11:39:29+0000",
+  "perplexity": {
+    "ppl": 12.2345,
+    "ppl_std": 0.59759,
+    "ctx_size": 512,
+    "chunks": 16,
+    "eval_tokens": 8192,
+    "corpus": "wiki.test.raw",
+    "wall_sec": 236.96
+  }
+}

@@ -1012,56 +1012,61 @@ def evaluate_dsv4_284b_readiness(cpu, mem, rep_30b):
     spec_burst_hi = round(raw_n1_tps * 2.45, 1)
 
     # Usable RAM on a physical 64 GB DIMM kit is typically 61.8–62.8 GiB after BIOS/iGPU/kernel reservation.
-    # Weights on disk: 56.40 GiB (VQ3) to 56.57–56.93 GiB (Fractal).
-    # Peak VmRSS: ~57.8–58.4 GiB at -c 32768, ~58.6–59.3 GiB at -c 262144.
-    headroom_32k_gib = round(ram_avail - 58.3, 2)
-    headroom_256k_gib = round(ram_avail - 59.1, 2)
+    # Weights on disk: 56.40 GiB (VQ3), 56.57 GiB (Fractal), 56.93 GiB (MaxQ-Fractal default / Abliterated-Fractal).
+    # Note: --load-mode none --repack allocates weights on non-reclaimable anonymous heap, plus /dev/shm slot snapshots.
+    # Peak VmRSS (MaxQ-Fractal 56.93 GiB): ~58.9–59.13 GiB at -c 32768 -ub 512, ~59.6–60.0 GiB at -c 262144.
+    est_rss_32k = 59.13
+    est_rss_256k = 59.90
+    headroom_32k_gib = round(ram_avail - est_rss_32k, 2)
+    headroom_256k_gib = round(ram_avail - est_rss_256k, 2)
 
-    if ram_total >= 90.0:
+    if ram_total >= 90.0 and ram_avail >= 62.0:
         can_fit_284b = True
         rec_ctx = 262144
         status = "READY (96 GB+ Host — Full 256K Context with Ample OS Headroom)"
         note = (
-            f"{ram_total:.1f} GiB total / {ram_avail:.1f} GiB free comfortably holds 56.4–56.9 GiB weights "
-            f"+ 256K MLA KV cache (-c 262144, ~58.8 GiB VmRSS) with zero swap."
+            f"{ram_total:.1f} GiB total / {ram_avail:.1f} GiB available comfortably holds 56.93 GiB anonymous-heap weights "
+            f"+ 256K MLA KV cache (-c 262144, ~{est_rss_256k:.1f} GiB VmRSS) with zero swap."
         )
     elif ram_total >= 59.5:
-        can_fit_284b = True
-        if ram_avail >= 60.0:
+        if ram_avail >= 61.5:
+            can_fit_284b = True
             rec_ctx = 262144
-            status = "READY ON 64 GB HOST (Headless / High Free RAM — -c 32768 Default, -c 262144 Supported)"
+            status = "READY ON 64 GB HOST (Headless / High Free RAM — -c 32768 -ub 512 Default, -c 262144 Headless)"
             note = (
-                f"{ram_avail:.1f} GiB currently available (~{headroom_32k_gib:+.1f} GiB OS margin at -c 32768, "
-                f"~{headroom_256k_gib:+.1f} GiB at -c 262144). Use -c 32768 on desktops; use -c 262144 on headless nodes."
+                f"{ram_avail:.1f} GiB available (~{headroom_32k_gib:+.2f} GiB OS margin above ~{est_rss_32k:.2f} GiB non-reclaimable VmRSS at -c 32768 -ub 512; "
+                f"~{headroom_256k_gib:+.2f} GiB at -c 262144). Keep -c 32768 -ub 512 on desktops; use -c 262144 only on headless servers."
             )
-        elif ram_avail >= 58.0:
+        elif ram_avail >= 59.8:
+            can_fit_284b = True
             rec_ctx = 32768
-            status = "READY WITH 64 GB DESKTOP HEADROOM GUARD (Use -c 32768)"
+            status = "TIGHT 64 GB DESKTOP HEADROOM — Use -c 32768 -ub 512 (Or 56.40 GiB VQ3 Preset)"
             note = (
-                f"{ram_avail:.1f} GiB available leaves ~{max(0.1, headroom_32k_gib):.1f} GiB OS headroom above ~58.3 GiB VmRSS. "
-                "Keep -c 32768 (do NOT pass -c 262144 while GUI/browsers are open, to avoid Linux OOM killer)."
+                f"{ram_avail:.1f} GiB available leaves ~{headroom_32k_gib:+.2f} GiB OS headroom above ~{est_rss_32k:.2f} GiB anonymous-heap VmRSS "
+                "(--load-mode none --repack + /dev/shm slot cache). Close heavy browsers or choose dsv4-vq3 (56.40 GiB, ~58.31 GiB VmRSS) to avoid OOM killer."
             )
         else:
+            can_fit_284b = False
             rec_ctx = 32768
-            status = "64 GB HOST DETECTED — FREE RAM TOO LOW RIGHT NOW (< 58.0 GiB Available)"
+            status = "64 GB HOST DETECTED — FREE RAM TOO LOW RIGHT NOW (< 59.8 GiB Available)"
             note = (
-                f"Hardware has {ram_total:.1f} GiB total RAM, but only {ram_avail:.1f} GiB is currently free/reclaimable. "
-                "Close browsers/desktop apps (or run headless) to free >= 58.8 GiB before loading the 56.4 GiB 284B model."
+                f"Hardware has {ram_total:.1f} GiB total RAM, but only {ram_avail:.1f} GiB is currently available ({headroom_32k_gib:+.2f} GiB vs {est_rss_32k:.2f} GiB VmRSS). "
+                "Close desktop/browser apps (or run headless) to free >= 60.0 GiB before loading the 56.93 GiB 284B model."
             )
     else:
         can_fit_284b = False
         rec_ctx = 0
         status = "INSUFFICIENT RAM FOR 284B (< 64 GB Physical RAM — Use Nemotron-30B Instead)"
         note = (
-            f"{ram_total:.1f} GiB total RAM cannot hold the 56.40 GiB 284B checkpoint in memory without severe SSD swap thrashing."
+            f"{ram_total:.1f} GiB total RAM cannot hold the 56.40–56.93 GiB 284B checkpoint in memory without severe SSD swap thrashing."
         )
 
     return {
         "can_fit_284b_in_ram": can_fit_284b,
         "status": status,
         "recommended_ctx": rec_ctx,
-        "est_vmrss_32k_gib": 58.3,
-        "est_vmrss_256k_gib": 59.1,
+        "est_vmrss_32k_gib": est_rss_32k,
+        "est_vmrss_256k_gib": est_rss_256k,
         "os_headroom_at_32k_gib": headroom_32k_gib,
         "os_headroom_at_256k_gib": headroom_256k_gib,
         "estimates": {
@@ -1155,7 +1160,8 @@ def main():
 
     if args.model in ("both", "30b"):
         ctx_note = "CPU-only NEON baseline; Metal GPU offload adds ~1.3-2.0x prefill" if (cpu.get("os") == "Darwin" and cpu.get("arch") == "arm64") else "Q4_0, 22K–35K Active Agent Context"
-        print(f"\n [2A] NEMOTRON-3.5-30B-A3B (13.3–17.6 GiB GGUF · 16–32 GB TIER) — ({ctx_note})")
+        print(f"\n [2A] NEMOTRON-3.5-30B-A3B ANALYTICAL BANDWIDTH ESTIMATES ({ctx_note})")
+        print(f"      (Heuristic hardware-roofline projections — run './modchip bench' for empirical tok/s)")
         print(f"  • Slot 0 Disk Snapshot Restore (22.2K tok) : ~{e['slot_restore_ms']:.1f} ms")
         print(f"  • Warm Interactive TTFT (40-tool prefix)   : ~{e['warm_ttft_sec']:.2f} s")
         if cpu.get("is_hybrid"):
@@ -1193,9 +1199,9 @@ def main():
         core_mask = sum(1 << c for c in cpu.get("physical_core_ids", [])) or 1
         print(f"\n [4] RECOMMENDED LAUNCH FLAGS FOR THIS CPU (Windows / PowerShell)")
         print(f"  One-click GPU+CPU launcher: windows\\AVVIA_MODCHIP.bat  (see windows\\README.md)")
-        print(f"  $env:LLAMA_MOE_TOP_K=4; $env:LLAMA_KV_L3_WINDOW=2048; $env:LLAMA_ATTN_WINDOW=4096; $env:LLAMA_ATTN_SINKS=16")
+        print(f"  $env:LLAMA_KV_L3_WINDOW=2048; $env:LLAMA_ATTN_WINDOW=4096; $env:LLAMA_ATTN_SINKS=16")
         print(f"  $env:LLAMA_SWA_STRIDE=1; $env:LLAMA_KV_DISABLE_CHUNKING=1; $env:OMP_PROC_BIND='close'; $env:OMP_PLACES='cores'")
-        print(f"  llama-server.exe --model NVIDIA-Nemotron-3.5-Lightning-30B-A3B-Q4_0.gguf `")
+        print(f"  llama-server.exe --model NVIDIA-Nemotron-3.5-30B-A3B-VQ3-64.gguf `")
         print(f"    -c 262144 -np 1 -t {cpu['physical_cores']} -tb {cpu['physical_cores']} -b 2048 -ub 2048 --cpu-mask 0x{core_mask:X} `")
         print(f"    --cache-type-k q8_0 --cache-type-v q4_0 --repack --flash-attn auto --cache-reuse 256 --slot-save-path $env:TEMP `")
         print(f"    --ctx-checkpoints 64 --checkpoint-min-step 128 `")
@@ -1203,8 +1209,8 @@ def main():
     else:
         print(f"\n [4] RECOMMENDED LAUNCH FLAGS FOR THIS CPU (via llama_modchip.py)")
         print(f"  python3 scripts/llama_modchip.py --model /path/to/model.gguf --apply-shm --print-cmd")
-        print(f"  export LLAMA_MOE_TOP_K=4 LLAMA_KV_L3_WINDOW=2048 LLAMA_ATTN_WINDOW=4096 LLAMA_ATTN_SINKS=16 LLAMA_SWA_STRIDE=1 LLAMA_KV_DISABLE_CHUNKING=1 OMP_PROC_BIND=close OMP_PLACES=cores")
-        print(f"  taskset -c {cpu['taskset_mask']} llama-server --model NVIDIA-Nemotron-3.5-Lightning-30B-A3B-Q4_0.gguf \\")
+        print(f"  export LLAMA_KV_L3_WINDOW=2048 LLAMA_ATTN_WINDOW=4096 LLAMA_ATTN_SINKS=16 LLAMA_SWA_STRIDE=1 LLAMA_KV_DISABLE_CHUNKING=1 OMP_PROC_BIND=close OMP_PLACES=cores")
+        print(f"  taskset -c {cpu['taskset_mask']} llama-server --model NVIDIA-Nemotron-3.5-30B-A3B-VQ3-64.gguf \\")
         print(f"    -c 262144 -np 1 -t {cpu['physical_cores']} -tb {cpu['physical_cores']} -b 2048 -ub 2048 \\")
         print(f"    --cache-type-k q8_0 --cache-type-v q4_0 --repack --flash-attn auto --cache-reuse 256 --slot-save-path /dev/shm \\")
         print(f"    --ctx-checkpoints 64 --checkpoint-min-step 128 \\")

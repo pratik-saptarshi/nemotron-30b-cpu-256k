@@ -1,53 +1,42 @@
-# Quality, Tool-Use, and Signal Precision Report: `LUT-VQ3-64` (3.00 bpw) & `Fractal-64` (3.75 bpw)
+# Quality, Tool-Use, and Signal Precision Report: `LUT-VQ3-64` (3.00 bpw), `Fractal-64` (3.75 bpw), & Single-Pass `MaxQ-Fractal`
 
-- **Status:** Passed (`v2.5.0`)
+- **Release:** `v2.5.1`
 - **Target Models:**
-  - `NVIDIA-Nemotron-3.5-Lightning-30B-A3B` (`52` blocks: `23` Mamba-2 SSM + `23` Sparse MoE + `6` GQA Attention)
-  - `DeepSeek-V4-Flash-0731` (`284.33B` total / `13.17B` active, `43` MLA + `256+1s` MoE layers, `Top-6` routing)
-- **Testbed:** AMD Ryzen 9 9955HX (`16` Zen 5 cores, `64 MB` dual-CCD L3 cache), DDR5-5600, Linux 6.8, Transparent HugePages (`madvise`).
-- **Evaluation Harness:** [`benchmarks/eval_quality_and_tools.py`](eval_quality_and_tools.py) (`30` pts Agentic Tool-Calling, `30` pts Executable Python Code Gen, `20` pts Long-Context Needle & Arithmetic, `20` pts Throughput & Memory Telemetry) + [`benchmarks/eval_perplexity_and_kld.py`](eval_perplexity_and_kld.py) (Continuous `llama-perplexity` & Top-64 Logit KL-Divergence).
+  - `NVIDIA-Nemotron-3.5-Lightning-30B-A3B` (`52` blocks: `23` Mamba-2 SSM + `23` Sparse MoE + `6` GQA Attention, unpruned `Top-6` active)
+  - `DeepSeek-V4-Flash-0731` (`284.33B` total / `13.17B` active, `43` MLA + `256+1s` MoE layers, unpruned `Top-6` active)
+- **Testbed:** AMD Ryzen 9 9955HX (`16` Zen 5 cores, `64 MB` dual-CCD L3 cache), DDR5-5600, Linux, Transparent HugePages (`madvise`).
+- **Evaluation Suites:**
+  1. [`benchmarks/eval_perplexity_and_kld.py`](eval_perplexity_and_kld.py): Teacher-forced Perplexity on uncompressed **`WikiText-2` (`wiki.test.raw`)** (`12,288` tokens on `30B`, `8,192` tokens on `284B`) + 2-pass single-host Top-64 Logit KL-Divergence (`nats/tok` at `T=1.0`).
+  2. [`benchmarks/eval_quality_and_tools.py`](eval_quality_and_tools.py): `30` pts Agentic Tool-Calling, `30` pts Executable Python Code Gen, `20` pts Long-Context Needle & Arithmetic (`80` quality pts) + `20` pts Throughput & Memory Telemetry.
+  3. [`benchmarks/eval_hard60_and_refusal.py`](eval_hard60_and_refusal.py): `60`-point extended algorithmic/math suite (`Hard-60`) + `8`-prompt dual-use technical security refusal audit.
 
 ---
 
-## 1. Format Specification & Summary
+## 1. Format Specification & Checkpoint Topology
 
-`llama-modchip v2.5.0` pairs two block-64 CPU quantization formats:
+`llama-modchip v2.5.1` pairs two block-64 CPU quantization formats:
 
 - **`Fractal-64` (`GGML_TYPE_Q2_0 = 42`, `30 bytes / 64 weights = 3.75 bpw`):**
   - `2 bytes` `FP16` super-block scale $d$, `4 bytes` storing eight 4-bit unsigned sub-scales ($m_b = 4 + u_b \in \{4..19\}$ for eight 8-weight sub-blocks), and `24 bytes` (`qs[16]` + `qh[8]`) of 3-bit indices into the symmetric non-linear dyadic codebook `{-14, -8, -4, -1, +1, +4, +8, +14}`.
-  - Achieves **`17.75 dB` SQNR (`99.15%` cosine similarity)** directly on uncompressed `BF16` MoE weights (`+1.45 dB` over `ggml` `Q3_K`), decoded via single-cycle `VPSHUFB` lookup and sub-scale fusion in `VPMADDWD`.
+  - Achieves **`17.75 dB` SQNR (`99.15%` cosine similarity)** directly on uncompressed `BF16` MoE weights (`+1.45 dB` over `ggml` `Q3_K`), decoded via single-cycle `VPSHUFB` lookup and sub-scale fusion in `VPMADDWD` (note: enum slot `42` reuses deprecated `GGML_TYPE_IQ4_NL_4_4` in-place).
 - **`LUT-VQ3-64` (`GGML_TYPE_VQ3_0 = 43`, `24 bytes / 64 weights = 3.00 bpw`):**
   - `2 bytes` `FP16` super-block scale $d$ (scaled by `GGML_VQ3_G = 8.6373016238e-3f`) and `22 bytes` (`qs[22]`):
     - `qs[0..19]` bits `0..6`: `20` 7-bit 3D Lloyd-Max indices (`60` weights at stride 22: `j, j+22, j+44`).
     - `qs[20..21]` bits `0..5`: `2` 6-bit 2D tail indices (`4` weights at `20, 42` and `21, 43`, half-table selected by bit 6).
     - `s24` (`24 bits` packed in bit 7 of `qs[0..21]` and bit 6 of `qs[20..21]`): **eight 3-bit unsigned sub-scales** ($m_b = 2 + u_b \in \{2..9\}$ for eight 8-weight sub-blocks).
-  - Achieves **`13.57 dB` SQNR (`97.78%` cosine similarity)** directly on `BF16` weights (`+3.42 dB` over `ggml` `Q2_K`), decoded in registers via three AVX-512 VBMI `VPERMI2B` (`_mm512_mask2_permutex2var_epi8`) lookups against a 384-byte codebook held in 6 ZMM registers.
+  - Achieves **`13.57 dB` SQNR (`97.78%` cosine similarity)** directly on `BF16` weights (`+3.42 dB` over `ggml` `Q2_K`), decoded in registers via three AVX-512 VBMI `VPERMI2B` (`_mm512_mask2_permutex2var_epi8`) lookups against a 384-byte codebook held in 6 ZMM registers (with portable `AVX2` fallback).
 
-### Shipped Hybrid Topology vs. Full-Expansion Ablation
+### Published Checkpoint Variants (`v2.5.1`)
 
-1. **`NVIDIA-Nemotron-3.5-30B-A3B-VQ3-64` (`13.30 GiB` shipped hybrid / `13.08 GiB` `--all-up-exps` ablation):**
-   - **Shipped Hybrid (`13.30 GiB`, `14,282,559,040` B):** Preserves boundary MoE layers (`blk.1, 3, 49, 51`) and all 23 residual-stream `ffn_down_exps` tensors in `Fractal-64` (`3.75 bpw`), while encoding the 19 interior `blk.6..47.ffn_up_exps` (pre-`ReLU²`) tensors from `BF16` into `LUT-VQ3-64` (`3.00 bpw`).
-   - **All-23 `ffn_up_exps` Ablation (`13.08 GiB`, [`results/eval_nemotron_vq3_64.json`](results/eval_nemotron_vq3_64.json)):** Even with all 23 `ffn_up_exps` tensors in `VQ3_0`, the checkpoint achieves **`100.0 / 100.0`** (`80.0 / 80.0` quality + `20.0 / 20.0` speed/RAM) at `24.18 tok/s` decode (`70.19%` Stockfish-PVS acceptance) in `16.04 GiB` `VmRSS`.
-2. **`DeepSeek-V4-Flash-0731-VQ3` (`56.40 GiB` shipped hybrid / `56.07 GiB` `--aggressive` ablation):**
-   - **Shipped Hybrid (`56.40 GiB`, `60,558,856,608` B across 3 shards):** Keeps 100% of MLA attention (`attn_q_b`, `attn_output_a`, `attn_output_b`, `attn_kv`, `compressor_*`) untouched in `Fractal-64` (`3.75 bpw`, zero double-quantization), keeps boundary shared experts (`blk.0..4, 39..42`) and all `ffn_down_shexp` in `Q5_K`/`Q6_K`, and encodes the 68 interior shared-expert pre-`SiLU` projections (`blk.5..38` `ffn_gate_shexp` & `ffn_up_shexp`) into `LUT-VQ3-64` (`3.00 bpw`).
-   - **255-Tensor Aggressive Ablation (`56.07 GiB`, [`results/eval_dsv4_vq3_64.json`](results/eval_dsv4_vq3_64.json)):** Also transcodes MLA expansion matrices (`3.94B` active weights/token) into `VQ3_0`, raising uncached `tg64` decode from `7.74 tok/s` to `9.05 tok/s` (`+16.9%`) and `pp128` prefill from `37.79 tok/s` to `41.11 tok/s` (`+8.8%`) in `58.31 GiB` `VmRSS`, while scoring `30/30` on Tool-Calling and `20/20` on Needle/Math. The shipped `56.40 GiB` release retains `Fractal-64` on MLA attention to avoid second-generation re-quantization loss.
-
-3. **[`DeepSeek-V4-Flash-0731-Abliterated-Fractal`](https://huggingface.co/Synchopate/DeepSeek-V4-Flash-0731-Abliterated-Fractal-64GB-CPU-GGUF) (`56.93 GiB` Default DeepSeek Checkpoint):**
-   - **Single-Pass `BF16/FP8 -> Q6_K` + `Fractal-64` (`56.93 GiB`, `61,129,364,000` B across 3 shards):** Quantizes all `130` dense bottleneck tensors (`token_embd`, `output`, `43× attn_q_a`, `43× ffn_{gate,up,down}_shexp`) directly from uncompressed `BF16` / native `FP8_E4M3` into `Q6_K` in a single pass while keeping 100% of MLA attention in `Fractal-64` (`3.75 bpw`). Reaches **`1.7597 ± 0.06534` `PPL`**, **`70.0 / 80.0`** on the Functional Gate (`30/30` Tools, `20/20` Needle), and **`50.0 / 60.0`** on the `Hard-60` suite in `59.13 GiB` `VmRSS`. *(Note: upstream refusal filters are disabled on this abliterated checkpoint; use `VQ3` or `Fractal` above for standard safety-aligned deployments.)*
-
-| Evaluation Dimension | Reference `BF16` (`16.00 bpw`) | Standard `Q4_0` (`4.50 bpw`) | `Fractal-64` (`3.75 bpw`) | `LUT-VQ3-64` Hybrid (`3.00 / 3.75 bpw`) | Notes |
-| :--- | :---: | :---: | :---: | :---: | :--- |
-| **Raw `BF16` Weight SQNR (`libggml`)** | $\infty\text{ dB}$ | `21.09 dB` | `17.75 dB` | `13.57 dB` (`up`) / `17.75 dB` (`down`) | `+3.42 dB` over `Q2_K` (`10.15 dB`) |
-| **Weight Cosine Similarity to `BF16`** | `100.00%` | `99.61%` | `99.15%` | `97.78%` (`up`) / `99.15%` (`down`) | `-33.3%` bytes vs `Q4_0` on `VQ3_0` tensors |
-| **Relative $L_2$ Reconstruction Error** | `0.00%` | `8.82%` | `12.96%` | `20.97%` (`up`) / `12.96%` (`down`) | `-10.11` pp lower error than `Q2_K` |
-| **1. Agentic Tool-Calling (`30` pts)** | `30.0 / 30.0` | `30.0 / 30.0` | `30.0 / 30.0` | `30.0 / 30.0` | Exact JSON schema compliance |
-| **2. Executable Code Gen (`30` pts)** | `30.0 / 30.0` | `30.0 / 30.0` | `30.0 / 30.0` | `30.0 / 30.0` | Nemotron unit-test pass rate |
-| **3. Long-Context Needle & Math (`20` pts)** | `20.0 / 20.0` | `20.0 / 20.0` | `20.0 / 20.0` | `20.0 / 20.0` | Exact canary retrieval & KV math |
-| **Nemotron Stockfish-PVS Acceptance** | `62.50%` | `66.67%` | `59.09%` | `70.19%` | Single-turn refactor prompt |
-| **Nemotron-30B Decode (`tok/s`)** | `7.82 tok/s` | `19.54 tok/s` | `25.02 tok/s` | `24.18 tok/s` (`22.44` `tg128`) | `+23.7%` E2E vs `Q4_0` |
-| **Nemotron-30B Disk / `VmRSS`** | `59.00` / `59.40 GiB` | `17.59` / `21.71 GiB` | `14.36` / `17.27 GiB` | `13.30 GiB` (`13.08` abl. / `16.04 GiB` RSS) | `-5.67 GiB` RSS vs `Q4_0` |
-| **DeepSeek-V4 284B Disk / Peak `VmRSS`** | `568.6 GiB` *(OOM)* | `162.4 GiB` *(OOM)* | `56.57` / `58.80 GiB` | `56.40 GiB` (`56.07` abl. / `58.31 GiB` RSS) | Fits in 64 GB host RAM (`0` swap) |
-| **Nemotron Total Quality Gate Score** | `100.0 / 100.0` | `100.0 / 100.0` | `100.0 / 100.0` | `100.0 / 100.0` | Passed |
+1. **`NVIDIA-Nemotron-3.5-30B-A3B` (`16–24 GB+` RAM, NVIDIA Open Model License):**
+   - **Aligned Default `VQ3-64` (`13.30 GiB`, `14,282,559,040` B):** Boundary MoE layers (`blk.1, 3, 49, 51`) and all 23 `ffn_down_exps` in `Fractal-64` (`3.75 bpw`); 19 interior `blk.6..47.ffn_up_exps` (pre-`ReLU²`) in `LUT-VQ3-64` (`3.00 bpw`). Passing `--all-up-exps` produces the `13.08 GiB` 23-layer ablation ([`results/eval_nemotron_vq3_64.json`](results/eval_nemotron_vq3_64.json), `100.0 / 100.0` at `24.18 tok/s`, `70.19%` `Stockfish-PVS` acceptance, `16.04 GiB` `VmRSS`).
+   - **Aligned `Fractal-64` (`14.36 GiB`, `15,420,034,624` B):** All 23 routed MoE layers in `Fractal-64` (`3.75 bpw`), recommended for non-VBMI `AVX2` CPUs and Apple Silicon Metal (`M1–M5`).
+   - **Opt-In Uncensored `Abliterated-VQ3-64` (`13.30 GiB`, `14,282,559,488` B):** Single-pass `VQ3-64 + Fractal-64` quantization of `HangGlidersRule/Darkstar-Nemotron-3.5-Lightning-30B-A3B-Abliterated-BF16` ([`scripts/build_nemotron_abliterated_vq3.py`](../scripts/build_nemotron_abliterated_vq3.py)).
+2. **`DeepSeek-V4-Flash-0731 284B` (`64 GB+` RAM, MIT License):**
+   - **Aligned Default [`MaxQ-Fractal`](https://huggingface.co/Synchopate/DeepSeek-V4-Flash-0731-MaxQ-Fractal-64GB-CPU-GGUF) (`56.93 GiB`, `61,129,363,968` B):** Built single-pass from `deepseek-ai/DeepSeek-V4-Flash` ([`scripts/build_dsv4_maxq_singlepass.py`](../scripts/build_dsv4_maxq_singlepass.py)) with **174 dense 100%-active bottleneck tensors** (`173 × Q6_K + 1 × Q8_0`: `token_embd`, `output`, `43× attn_q_a`, `43× ffn_{gate,up,down}_shexp`), **317 MLA & Lightning Indexer tensors** in `Fractal-64` (`3.75 bpw`), and all **129 3D routed MoE tensors** quantized single-pass from `MXFP4` with `@antirez`'s `1.5M`-token `imatrix`.
+   - **Opt-In Uncensored [`Abliterated-Fractal`](https://huggingface.co/Synchopate/DeepSeek-V4-Flash-0731-Abliterated-Fractal-64GB-CPU-GGUF) (`56.93 GiB`, `61,129,364,000` B):** Identical single-pass `174 × Q6_K/Q8_0` + `Fractal-64` recipe applied to `prem-research/DeepSeek-V4-Flash-0731-abliterated` ([`results/gate_Abliterated-Fractal-MaxQ-56.93GiB.json`](results/gate_Abliterated-Fractal-MaxQ-56.93GiB.json)).
+   - **Compact Aligned `VQ3` (`56.40 GiB` shipped / `56.07 GiB` `--aggressive`):** 100% MLA in `Fractal-64` + 68 interior `shexp` in `LUT-VQ3-64` ([`results/gate_VQ3-DoubleQuant-Baseline.json`](results/gate_VQ3-DoubleQuant-Baseline.json): `64.0 / 80` Gate, `30.0 / 60` `Hard-60`, `9.15 tok/s` served / `9.05 tok/s` raw `N=1`). Note that [`results/eval_dsv4_vq3_64.json`](results/eval_dsv4_vq3_64.json) (`70.0 / 80` Gate, `10.74 tok/s`) records the `--aggressive` `56.07 GiB` ablation **with `Stockfish-PVS` speculation active** (`67.95%` draft acceptance across `156` drafted tokens), whereas raw `N=1` unpruned `Top-6` decode without speculation is `9.05 tok/s`.
+   - **Cross-Platform Aligned `Fractal` (`56.57 GiB`):** Pure `Fractal-64` MLA + `Q5_K`/`Q6_K` `shexp` ([`results/gate_Fractal-Reference-56.57GiB.json`](results/gate_Fractal-Reference-56.57GiB.json): `64.0 / 80` Gate, `20.0 / 60` `Hard-60`, `9.55 tok/s` served).
 
 ---
 
@@ -64,35 +53,37 @@ Measured via `quantize_row_*_ref` $\to$ `dequantize_row_*` on `NVIDIA-Nemotron-3
 | **`LUT-VQ3-64` (`GGML_TYPE_VQ3_0 = 43`)** | `3.000` | `2.33` (128 3D VQ) | `24.0 B` | `13.57 dB` | `97.78%` | `20.97%` | `VPERMI2B` in 6 ZMMs + 8×3b sub-scales |
 | **Standard `Q2_K`** | `2.625` | `2.00` (uniform) | `21.0 B` | `10.15 dB` | `95.37%` | `31.08%` | Multi-shift `Q2_K` unpack |
 
-### Key Observations
-1. **`Fractal-64` (`3.75 bpw`) exceeds `Q3_K` (`3.44 bpw`) by `+1.45 dB` (`99.15%` vs `98.84%` cosine similarity):** Its symmetric non-linear codebook `{-14, -8, -4, -1, +1, +4, +8, +14}` paired with 8-weight 4-bit sub-scales tracks heavy-tailed MoE distributions more closely than uniform 3-bit grids while avoiding 256-element block divisibility constraints (`1856 % 256 != 0` on Nemotron).
-2. **`LUT-VQ3-64` (`3.00 bpw`) exceeds `Q2_K` (`2.625 bpw`) by `+3.42 dB` (`97.78%` vs `95.37%` cosine similarity):** 3D Lloyd-Max vector quantization concentrates all 128 antipodally symmetric centroids onto the populated spherical/ellipsoidal density shell in $\mathbb{R}^3$ instead of sparse hypercube corners.
-3. **Asymmetric expansion/output split:** Placing `LUT-VQ3-64` (`3.00 bpw`) on pre-activation expansion matrices (`ffn_up_exps` before `ReLU²`, interior `ffn_gate_shexp` / `ffn_up_shexp` before `SiLU`) and keeping residual-stream output projections (`ffn_down_exps`, `ffn_down_shexp`) and MLA attention in higher-precision formats (`Fractal-64` `3.75 bpw` or `Q5_K`/`Q6_K`) preserves residual variance and tool-calling stability.
-
 ---
 
-## 3. Continuous End-to-End Perplexity (`PPL`) & Logit KL-Divergence (`KLD`)
+## 3. Continuous `WikiText-2` Perplexity (`PPL`) & 2-Pass Logit KL-Divergence (`KLD`)
 
-Discrete functional gates (`80/80` across JSON tool-calling, unit-tested code generation, and long-context needle/math) verify structural non-collapse, but saturate when multiple quantization profiles pass every assertion—especially on `DeepSeek-V4-Flash 284B` where routed MoE experts sit at `SwiGLU-H2` (`IQ1_S` / `IQ1_M` / `IQ2_XXS`, `1.56–2.06 bpw`) while MLA attention and shared experts sit in `Fractal-64` (`3.75 bpw`), `LUT-VQ3-64` (`3.00 bpw`), or `Q5_K`/`Q6_K`.
+Discrete functional gates (`80/80` across JSON tool-calling, unit-tested code generation, and long-context needle/math) verify structural non-collapse, but saturate when multiple quantization profiles pass every assertion—especially on `DeepSeek-V4-Flash 284B` where routed MoE experts sit at `IQ1_S` / `IQ1_M` / `IQ2_XXS` (`1.56–2.06 bpw`).
 
-To measure continuous end-to-end model fidelity across **all** layers (including `IQ1_S` routed experts, `Fractal-64` MLA attention, and `LUT-VQ3-64` / `Q6_K` shared experts), [`benchmarks/eval_perplexity_and_kld.py`](eval_perplexity_and_kld.py) provides two non-saturating metrics:
-1. **Teacher-Forced `llama-perplexity` (`PPL ± σ`)**: Evaluates exact cross-entropy over `8 × 512 = 4,096` tokens (`--ctx-size 512 --chunks 8`).
-2. **Two-Pass Single-Host Top-64 Logit KL-Divergence (`nats/tok`)**: Collects greedy completion distributions (`n_probs = 64`) across 12 multi-domain probes (C++20 atomics, Python algorithms, SQL/HTTP protocols, number theory, and MLA/MoE architecture derivations) sequentially so two `56+ GiB` checkpoints can be compared on a single `64 GB` host without loading both simultaneously.
+[`benchmarks/eval_perplexity_and_kld.py`](eval_perplexity_and_kld.py) measures two continuous, non-saturating end-to-end metrics across the full model graph:
+1. **Standard Uncompressed `WikiText-2` (`wiki.test.raw`) Teacher-Forced Perplexity (`PPL ± σ`)**: Auto-downloaded from `cosmo.zip` (`wiki.test.raw`, `1,290,590` bytes, zero `<unk>` pre-masking), evaluated at `--ctx-size 512` across `24` chunks (`12,288` tokens) on `Nemotron-30B` and `16` chunks (`8,192` tokens) on `DeepSeek-V4 284B`.
+2. **Two-Pass Single-Host Top-64 Logit KL-Divergence (`nats/tok` at `T=1.0`)**: Compares output distributions (`n_probs = 64`) across 12 deterministic C++20, Python, SQL/HTTP, number-theory, and MoE/MLA probes against committed reference logit snapshots ([`results/dsv4_maxq_ref_logits.json`](results/dsv4_maxq_ref_logits.json) and [`results/nemotron_fractal_ref_logits.json`](results/nemotron_fractal_ref_logits.json)).
 
-### A. `DeepSeek-V4-Flash-0731` (`284.33B` Total / `13.17B` Active) — Continuous `PPL` & Extended `Hard-60` Suite
-*Measured on 16-Core AMD Zen 5 (`64 GB` DDR5-5600, `8 × 512 = 4,096` multi-domain code/math/systems tokens + `80`-pt Gate + `60`-pt Hard Algorithmic/Math Suite):*
+### A. `NVIDIA-Nemotron-3.5-30B-A3B` — `WikiText-2` (`12,288` tok) Perplexity & Logit KLD
 
-| `DeepSeek-V4-Flash 284B` Checkpoint (`64 GB` Host) | Disk Size | Peak `VmRSS` | **Continuous `PPL ± σ` (`4,096` tok)** | Functional Gate (`80` pts) | Extended `Hard-60` Suite (`60` pts) | Notes |
-| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
-| **`Fractal-64` (`56.57 GiB` Shipped)** | `56.57 GiB` | `58.20 GiB` | **`1.8284 ± 0.07038`** | `64.0 / 80.0` | `20.0 / 60.0` | `100%` MLA in `Fractal-64`; `shexp` in `Q5_K`/`Q6_K` |
-| **`LUT-VQ3-64` (`56.40 GiB` Shipped Hybrid)** | `56.40 GiB` | `58.31 GiB` | **`1.8258 ± 0.06978`** *(`-0.14%`)* | `66.0 / 80.0` | `40.0 / 60.0` | `68` interior `shexp` in `VQ3_0`; MLA in `Fractal-64` |
-| **Single-Pass `Abliterated-VQ3` (`BF16/FP8 -> VQ3`)** | `56.40 GiB` | `58.13 GiB` | **`1.7438 ± 0.06360`** *(`-4.63%`)* | `60.0 / 80.0` | `40.0 / 60.0` | Direct `FP8 -> VQ3_0` eliminates `Q5_K -> VQ3` double-quantization |
-| **[`Abliterated-Fractal`](https://huggingface.co/Synchopate/DeepSeek-V4-Flash-0731-Abliterated-Fractal-64GB-CPU-GGUF) (`56.93 GiB` Default Shipped)** | `56.93 GiB` | `59.13 GiB` | **`1.7597 ± 0.06534`** *(`-3.76%`)* | **`70.0 / 80.0`** *(`30/30` Tools)* | **`50.0 / 60.0`** | Direct `BF16/FP8 -> Q6_K` on all `130` dense bottlenecks |
+| `Nemotron-3.5-30B-A3B` Checkpoint | Effective MoE `bpw` | Disk Size | **`WikiText-2` `PPL ± σ` (`12,288` tok)** | **2-Pass Logit KLD vs. `Fractal-64`** | Functional Gate (`100` pts) | Security Audit (`8` prompts) |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| **`Fractal-MXFP4` (`15.95 GiB`, Aligned)** | `4.25 bpw` | `15.95 GiB` | **`7.2927 ± 0.25382`** | — | `100.0 / 100.0` | — |
+| **`Fractal-64` (`14.36 GiB`, Aligned)** | `3.75 bpw` | `14.36 GiB` | **`7.3610 ± 0.26017`** *(`+0.94%` vs MXFP4)* | **`0.0000 nats/tok` (`100%` Ref)** | `100.0 / 100.0` | — |
+| **`VQ3-64` (`13.30 GiB`, Aligned Default)** | `3.00 / 3.75 bpw` | `13.30 GiB` | **`7.4400 ± 0.26263`** *(`+1.07%` vs Fractal)* | **`0.0561 nats/tok (83.3% Top-1)`** | `100.0 / 100.0` | `8 / 8` |
+| **`Abliterated-VQ3-64` (`13.30 GiB`, Opt-In)** | `3.00 / 3.75 bpw` | `13.30 GiB` | **`7.7721 ± 0.28352`** *(`+4.46%` vs Aligned VQ3)* | **`0.1357 nats/tok (75.0% Top-1)`** | `100.0 / 100.0` | `8 / 8` |
 
-### B. `NVIDIA-Nemotron-3.5-30B-A3B` — Continuous `WikiText-2` `PPL` & End-to-End Logit `KLD`
-*Community-reproduced independent audit (`@khairullinr`, [Issue #16](https://github.com/synchopate/llama-modchip/issues/16)) + Zen 5 harness verification:*
-- **`Baseline-Q4_0` (`17.59 GiB`, `4.50 bpw` Reference)**: `WikiText-2` `PPL = 2.086 ± 0.037` (`0.0000 nats/tok` reference).
-- **`Fractal-64` (`14.36 GiB`, `3.75 bpw` Direct from `BF16`)**: End-to-end Logit `KLD = 0.0566 nats/tok` (`+5.82%` equivalent PPL delta vs. `Q4_0`), **`94.35%` Top-1 greedy token agreement** across code generation, `100.0 / 100.0` Functional Gate.
+*(Note: Independent community audit `@khairullinr` in [Issue #16](https://github.com/synchopate/llama-modchip/issues/16) additionally measured `PPL = 2.086 ± 0.037` on `Q4_0` and `Logit KLD = 0.0566 nats/tok` (`94.35%` Top-1 agreement) between `Fractal-64` and `Q4_0` on a deterministic Python source-code corpus.)*
+
+### B. `DeepSeek-V4-Flash-0731 284B` — Unconfounded `MaxQ-Fractal` vs. `Abliterated-Fractal` & `VQ3`
+
+Because `MaxQ-Fractal` and `Abliterated-Fractal` use the **exact same single-pass quantization recipe** (`173 × Q6_K + 1 × Q8_0` dense bottlenecks, `317 × Fractal-64` MLA/Indexer tensors, and `@antirez`'s `1.5M`-token `imatrix` routed MoE), comparing them isolates the effect of upstream refusal abliteration from single-pass `Q6_K` quantization:
+
+| `DeepSeek-V4-Flash 284B` Checkpoint (`64 GB` Host) | Disk Size | Anonymous `VmRSS` | **`WikiText-2` `PPL ± σ` (`8,192` tok)** | **2-Pass Logit KLD vs. `MaxQ`** | Functional Gate (`80` pts) | `Hard-60` (`60` pts) | Security Audit (`8` prompts) |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **[`MaxQ-Fractal`](https://huggingface.co/Synchopate/DeepSeek-V4-Flash-0731-MaxQ-Fractal-64GB-CPU-GGUF) (`56.93 GiB`, Aligned Default)** | `56.93 GiB` | `59.13 GiB` | **`9.3896 ± 0.40764`** | **`0.0000 nats/tok` (`100%` Ref)** | `70.0 / 80.0` *(layout)* | **`40.0 / 60.0`** | `7 / 8` |
+| **[`Abliterated-Fractal`](https://huggingface.co/Synchopate/DeepSeek-V4-Flash-0731-Abliterated-Fractal-64GB-CPU-GGUF) (`56.93 GiB`, Opt-In)** | `56.93 GiB` | `59.13 GiB` | **`11.3944 ± 0.56500`** | **`1.3444 nats/tok (50.0% Top-1)`** | **`70.0 / 80.0`** *(`30/30` Tools)* | **`50.0 / 60.0`** | `8 / 8` |
+| **`LUT-VQ3-64` (`56.40 GiB` Shipped Hybrid)** | `56.40 GiB` | `58.31–58.61 GiB` | **`12.2345 ± 0.59759`** | **`0.8302 nats/tok (75.0% Top-1)`** | `64.0 / 80.0` *(`70/80` `--aggressive`)* | `30.0 / 60.0` | `8 / 8` |
+| **`Fractal-64` (`56.57 GiB` Cross-Platform)** | `56.57 GiB` | `58.20 GiB` | *(transcoded `Q5_K` shexp)* | — | `64.0 / 80.0` | `20.0 / 60.0` | `8 / 8` |
 
 ---
 
@@ -106,21 +97,37 @@ python3 -m unittest discover -s vq3 -p "test_*.py" -v
 gcc -O3 -march=native -mavx512f -mavx512bw -mavx512vbmi -mf16c -mbmi2 \
   vq3/test_vq3_ggml_kernels.c -lm -o vq3/test_vq3_ggml_kernels && ./vq3/test_vq3_ggml_kernels
 
-# 3. Build the shipped hybrid GGUFs (pass --all-up-exps or --aggressive for full-VQ3 ablations)
+# 3. Build single-pass MaxQ-Fractal (aligned default or opt-in abliterated) & Nemotron VQ3-64 GGUFs
+python3 scripts/build_dsv4_maxq_singlepass.py --base-model deepseek-ai/DeepSeek-V4-Flash --output-prefix ./DeepSeek-V4-Flash-0731-MaxQ-Fractal
 python3 scripts/build_nemotron_vq3.py --fractal-gguf <Fractal-64.gguf> --bf16-gguf <BF16.gguf> --output NVIDIA-Nemotron-3.5-30B-A3B-VQ3-64.gguf
-python3 scripts/build_dsv4_vq3.py --input-dir <Fractal-Dir> --output-dir ./dsv4-vq3
+python3 scripts/build_nemotron_abliterated_vq3.py --output NVIDIA-Nemotron-3.5-30B-A3B-Abliterated-VQ3-64.gguf
 
-# 4. Run the 100-Point Quality Gate + Continuous Perplexity & 2-Pass Logit KLD
+# 4. Run WikiText-2 Perplexity + 2-Pass Logit KLD against committed reference logit snapshots
 python3 benchmarks/eval_perplexity_and_kld.py \
   --llama-perplexity ./workspace/bin/llama-perplexity \
-  --model ./dsv4-vq3/DeepSeek-V4-Flash-0731-VQ3-00001-of-00003.gguf \
-  --url http://127.0.0.1:8787 \
-  --ref-logits benchmarks/results/fractal_ref_logits.json \
-  --save-json benchmarks/results/cont_dsv4_vq3_64.json
+  --model ./workspace/models/dsv4-maxq-fractal/DeepSeek-V4-Flash-0731-MaxQ-Fractal-00001-of-00003.gguf \
+  --ctx-size 512 --chunks 16 \
+  --url http://127.0.0.1:8080 \
+  --ref-logits benchmarks/results/dsv4_maxq_ref_logits.json \
+  --save-json benchmarks/results/cont_dsv4_candidate.json
 
+python3 benchmarks/eval_perplexity_and_kld.py \
+  --llama-perplexity ./workspace/bin/llama-perplexity \
+  --model ./workspace/models/NVIDIA-Nemotron-3.5-30B-A3B-VQ3-64.gguf \
+  --ctx-size 512 --chunks 24 \
+  --url http://127.0.0.1:8080 \
+  --ref-logits benchmarks/results/nemotron_fractal_ref_logits.json \
+  --save-json benchmarks/results/kld_nemotron_vq3_vs_fractal.json
+
+# 5. Run the 100-Point Functional Gate + Extended Hard-60 & Dual-Use Refusal Audit
 python3 benchmarks/eval_quality_and_tools.py \
   --url http://127.0.0.1:8787 \
   --label Nemotron-VQ3-64-13.30GiB \
   --compare benchmarks/results/eval_fractal_64_bf16.json \
   --save-json benchmarks/results/eval_nemotron_vq3_64.json
+
+python3 benchmarks/eval_hard60_and_refusal.py \
+  --url http://127.0.0.1:8080 \
+  --label DeepSeek-V4-MaxQ-Fractal-Aligned \
+  --save-json benchmarks/results/hard60_dsv4_maxq_fractal.json
 ```

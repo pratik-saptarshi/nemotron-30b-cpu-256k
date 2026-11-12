@@ -103,7 +103,7 @@ def _ensure_slot0_restored(target_upstream: str) -> None:
         for disk_cand in (
             os.path.join(custom_cache_dir, SLOT0_SNAPSHOT_NAME) if custom_cache_dir else "",
             os.path.join(_REPO_ROOT, "workspace", "cache", SLOT0_SNAPSHOT_NAME),
-            f"/opt/models/nemotron/cache/{SLOT0_SNAPSHOT_NAME}",
+            os.path.join(_REPO_ROOT, "workspace", "slot_cache", SLOT0_SNAPSHOT_NAME),
         ):
             if disk_cand and os.path.exists(disk_cand):
                 try:

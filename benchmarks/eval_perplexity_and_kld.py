@@ -39,7 +39,7 @@ from typing import Any, Dict, List, Tuple
 
 WIKITEXT2_URLS = [
     "https://huggingface.co/datasets/ggml-org/ci/resolve/main/wikitext-2-raw-v1.zip",
-    "https://raw.githubusercontent.com/pytorch/examples/main/word_language_model/data/wikitext-2/test.txt",
+    "https://cosmo.zip/pub/datasets/wikitext-2-raw-v1.zip",
 ]
 
 # Fixed deterministic multi-domain probe contexts for next-token logit KLD
@@ -138,33 +138,34 @@ KLD_PROBES: List[Tuple[str, str]] = [
 
 def ensure_default_corpus(cache_dir: str) -> str:
     os.makedirs(cache_dir, exist_ok=True)
-    target = os.path.join(cache_dir, "wikitext2_test.txt")
-    if os.path.isfile(target) and os.path.getsize(target) > 100_000:
-        return target
+    target = os.path.join(cache_dir, "wiki.test.raw")
+    if os.path.isfile(target) and os.path.getsize(target) > 1_000_000:
+        with open(target, "r", encoding="utf-8", errors="replace") as f:
+            head_sample = f.read(8192)
+        if "<unk>" not in head_sample:
+            return target
 
     import io
     import zipfile
 
     for url in WIKITEXT2_URLS:
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": "llama-modchip-eval/2.5"})
+            req = urllib.request.Request(url, headers={"User-Agent": "llama-modchip-eval/2.5.1"})
             with urllib.request.urlopen(req, timeout=60) as resp:
                 raw = resp.read()
-            if url.endswith(".zip"):
-                with zipfile.ZipFile(io.BytesIO(raw)) as zf:
-                    for name in zf.namelist():
-                        if name.endswith("wiki.test.raw"):
-                            data = zf.read(name)
-                            with open(target, "wb") as out:
-                                out.write(data)
-                            return target
-            else:
-                with open(target, "wb") as out:
-                    out.write(raw)
-                return target
+            with zipfile.ZipFile(io.BytesIO(raw)) as zf:
+                for name in zf.namelist():
+                    if name.endswith("wiki.test.raw"):
+                        data = zf.read(name)
+                        sample = data[:8192].decode("utf-8", errors="replace")
+                        if "<unk>" in sample:
+                            raise RuntimeError(f"Rejected pre-tokenized <unk> corpus from {url}")
+                        with open(target, "wb") as out:
+                            out.write(data)
+                        return target
         except Exception as exc:
             sys.stderr.write(f"[!] Corpus download fallback ({url}): {exc}\n")
-    raise RuntimeError("Could not download default WikiText-2 corpus; pass --corpus /path/to/text.txt")
+    raise RuntimeError("Could not download genuine raw WikiText-2 (wiki.test.raw); pass --corpus /path/to/wiki.test.raw")
 
 
 def run_llama_perplexity(
