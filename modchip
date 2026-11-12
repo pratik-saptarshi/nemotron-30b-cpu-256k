@@ -155,7 +155,11 @@ cmd_setup() {
 }
 
 cmd_start() {
-    local explicit_model="${1:-}"
+    local explicit_model=""
+    if [[ $# -gt 0 && "$1" != -* ]]; then
+        explicit_model="$1"
+        shift
+    fi
     local model="${explicit_model:-$DEFAULT_MODEL}"
     mkdir -p "$PID_DIR" "${WORKSPACE_DIR}/logs"
 
@@ -213,7 +217,7 @@ cmd_start() {
             "${REPO_ROOT}/install.sh" --skip-model --model "$model"
         fi
         echo -e "${CYAN}[*] Starting 256K CPU Engine + Stockfish-PVS v2 (M=7) in background...${RESET}"
-        SERVER_HOST="${SERVER_HOST}" nohup "${REPO_ROOT}/start_server.sh" "$model" > "${WORKSPACE_DIR}/logs/server.log" 2>&1 &
+        SERVER_HOST="${SERVER_HOST}" nohup "${REPO_ROOT}/start_server.sh" "$model" "$@" > "${WORKSPACE_DIR}/logs/server.log" 2>&1 &
         echo $! > "$SERVER_PID_FILE"
         if [[ -n "$explicit_model" ]]; then
             printf '%s\n' "$model" > "$DEFAULT_MODEL_FILE"
@@ -307,7 +311,7 @@ cmd_start() {
     fi
 
     echo -e "${BOLD}${GREEN}╔══════════════════════════════════════════════════════════════════════════════╗${RESET}"
-    echo -e "${BOLD}${GREEN}║    llama-modchip v2.5.1 is LIVE — Choose how you want to interact:           ║${RESET}"
+    echo -e "${BOLD}${GREEN}║    llama-modchip v2.5.2 is LIVE — Choose how you want to interact:           ║${RESET}"
     echo -e "${BOLD}${GREEN}╠══════════════════════════════════════════════════════════════════════════════╣${RESET}"
     echo -e "  🌐 ${BOLD}Live Web Chat & Telemetry HUD${RESET} : ${CYAN}http://${GATEWAY_HOST}:${GATEWAY_PORT}${RESET}"
     echo -e "  💬 ${BOLD}Interactive Terminal Chat${RESET}     : ${GREEN}./modchip chat${RESET}"
@@ -535,9 +539,11 @@ cmd_download_bin() {
     fi
     local srv_asset="llama-server-modchip-linux-x86_64-${isa_suffix}"
     local cli_asset="llama-cli-modchip-linux-x86_64-${isa_suffix}"
-    local base_url="https://github.com/synchopate/llama-modchip/releases/download/v2.5.1"
+    local base_url="https://github.com/synchopate/llama-modchip/releases/download/v2.5.2"
+    local fallback_url="https://github.com/synchopate/llama-modchip/releases/download/v2.5.1"
     echo -e "${CYAN}[*] CPUID detected '${isa_suffix}' ISA — downloading portable ${srv_asset} & ${cli_asset}...${RESET}"
-    curl -fL --progress-bar -o "${dest_dir}/${srv_asset}.part" "${base_url}/${srv_asset}"
+    curl -fL --progress-bar -o "${dest_dir}/${srv_asset}.part" "${base_url}/${srv_asset}" \
+        || curl -fL --progress-bar -o "${dest_dir}/${srv_asset}.part" "${fallback_url}/${srv_asset}"
     local actual_srv_sha
     actual_srv_sha="$(sha256sum "${dest_dir}/${srv_asset}.part" | awk '{print $1}')"
     if [[ "$actual_srv_sha" != "$srv_sha256" ]]; then
@@ -546,7 +552,11 @@ cmd_download_bin() {
         exit 1
     fi
     chmod +x "${dest_dir}/${srv_asset}.part"
-    if ! "${dest_dir}/${srv_asset}.part" --version >/dev/null 2>&1; then
+    local smoke_err=""
+    if ! smoke_err="$("${dest_dir}/${srv_asset}.part" --version 2>&1)"; then
+        if [[ "$smoke_err" == *"libgomp.so.1"* ]]; then
+            echo -e "${YELLOW}[!] Missing OpenMP runtime (libgomp.so.1). Install it via 'sudo apt-get install -y libgomp1' (Debian/Ubuntu) or 'sudo dnf install -y libgomp' (Fedora/RHEL).${RESET}" >&2
+        fi
         echo -e "${YELLOW}[!] Downloaded ${srv_asset} failed --version check on this host; run './modchip setup --source' to compile natively.${RESET}" >&2
         rm -f "${dest_dir}/${srv_asset}.part"
         exit 1
@@ -554,7 +564,8 @@ cmd_download_bin() {
     mv -f "${dest_dir}/${srv_asset}.part" "${dest_dir}/${srv_asset}"
     ln -sf "${srv_asset}" "${dest_dir}/llama-server-modchip-linux-x86_64"
     cp -f "${dest_dir}/${srv_asset}" "${WORKSPACE_DIR}/bin/llama-server-nemotron" 2>/dev/null || true
-    if curl -fL --progress-bar -o "${dest_dir}/${cli_asset}.part" "${base_url}/${cli_asset}"; then
+    if curl -fL --progress-bar -o "${dest_dir}/${cli_asset}.part" "${base_url}/${cli_asset}" \
+        || curl -fL --progress-bar -o "${dest_dir}/${cli_asset}.part" "${fallback_url}/${cli_asset}"; then
         local actual_cli_sha
         actual_cli_sha="$(sha256sum "${dest_dir}/${cli_asset}.part" | awk '{print $1}')"
         if [[ "$actual_cli_sha" == "$cli_sha256" ]]; then

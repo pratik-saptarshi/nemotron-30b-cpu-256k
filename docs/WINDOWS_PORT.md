@@ -1,6 +1,6 @@
-# llama-modchip on Windows — Porting Notes & Benchmarks (`v2.5.0`)
+# llama-modchip on Windows — Porting Notes & Benchmarks (`v2.5.2`)
 
-**Project:** `llama-modchip` `v2.5.0` (`DeepSeek-V4-Flash-0731` `VQ3-64` `56.40 GiB` & `Fractal-64` `56.57 GiB`, plus `Nemotron-3.5-30B-A3B` `VQ3-64` `13.30 GiB` & `Fractal-64` `14.36 GiB`)
+**Project:** `llama-modchip` `v2.5.2` (`DeepSeek-V4-Flash-0731` `MaxQ-Fractal` `56.93 GiB`, `VQ3-64` `56.40 GiB`, `Fractal-64` `56.57 GiB`, & `Abliterated-Fractal` `56.93 GiB`, plus `Nemotron-3.5-30B-A3B` `VQ3-64` `13.30 GiB`, `Fractal-64` `14.36 GiB`, & `Abliterated-VQ3-64` `13.30 GiB`)
 **Test machine:** AMD Ryzen 7 9800X3D (8C/16T, 96 MB L3) · 64 GB DDR5 · NVIDIA RTX 4070 Ti 12 GB · NVMe PCIe 5.0
 **OS:** Windows 11 Pro · engine built with MinGW-w64 GCC (UCRT64) + CMake + Ninja, `-march=native` (AVX-512F/BW/VBMI/VNNI/BF16)
 **Original Port & 1M-Context Verification:** [`@MR1KRAKEN`](https://github.com/MR1KRAKEN) ([PR #27](https://github.com/synchopate/llama-modchip/pull/27), [Issue #28](https://github.com/synchopate/llama-modchip/issues/28)); x64 AVX-512 ABI & `VQ3_0` update in `commit 54c89bf` ([Issue #31](https://github.com/synchopate/llama-modchip/issues/31))
@@ -86,4 +86,4 @@ Net result: on a 12 GB card `DeepSeek-V4 284B` is faster on CPU alone. (For 30B/
 
 ## 7. Summary
 
-`DeepSeek-V4-Flash 284B` (`VQ3-64` `56.40 GiB` and `Fractal-64` `56.57 GiB`) and `Nemotron-3.5-30B-A3B` (`VQ3-64` `13.30 GiB` and `Fractal-64` `14.36 GiB`) compile and run natively on Windows 11 via `windows\build_patched_engine.ps1` and `windows\AVVIA_DSV4.bat`, delivering **6.35–8.04 tok/s pure decode and 21.3–22.6 tok/s prefill up to 1M context on an 8-core Ryzen 7 9800X3D in 64 GB RAM**.
+`DeepSeek-V4-Flash 284B` (`MaxQ-Fractal` `56.93 GiB`, `VQ3-64` `56.40 GiB`, `Fractal-64` `56.57 GiB`, and `Abliterated-Fractal` `56.93 GiB`) and `Nemotron-3.5-30B-A3B` (`VQ3-64` `13.30 GiB`, `Fractal-64` `14.36 GiB`, and `Abliterated-VQ3-64` `13.30 GiB`) compile and run natively on Windows 11 via `windows\build_patched_engine.ps1` and `windows\AVVIA_DSV4.bat`, delivering **8.11 tok/s unpruned `Top-6` decode / 27.55 tok/s `pp512` prefill on Ryzen 9 9950X3D** and **6.35–8.04 tok/s pure decode / 21.3 tok/s prefill up to 1M context on an 8-core Ryzen 7 9800X3D in 64 GB RAM**.

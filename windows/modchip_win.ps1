@@ -22,7 +22,7 @@ if (-not (Test-Path $ModelDir)) { New-Item -ItemType Directory -Path $ModelDir |
 function Write-Banner {
     Clear-Host
     Write-Host "================================================================================" -ForegroundColor Cyan
-    Write-Host "  llama-modchip v2.5.0 -- Windows Hybrid GPU + CPU MoE Edition" -ForegroundColor Green
+    Write-Host "  llama-modchip v2.5.2 -- Windows Hybrid GPU + CPU MoE Edition" -ForegroundColor Green
     Write-Host "  Ottimizzato per NVIDIA RTX / AMD Vulkan (8-16 GB VRAM) + CPU (16-128 GB RAM)" -ForegroundColor White
     Write-Host "================================================================================" -ForegroundColor Cyan
 }
@@ -136,7 +136,7 @@ function Ensure-LlamaBinaries($hw) {
     }
 
     Write-Host "`n[*] Prima esecuzione: scarico il motore llama.cpp ufficiale con accelerazione GPU..." -ForegroundColor Green
-    $headers = @{ "User-Agent" = "llama-modchip-windows/2.5.0" }
+    $headers = @{ "User-Agent" = "llama-modchip-windows/2.5.2" }
     $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=5" -Headers $headers
 
     $chosenRel = $null

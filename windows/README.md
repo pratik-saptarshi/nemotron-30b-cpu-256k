@@ -1,4 +1,4 @@
-# `llama-modchip v2.5.0` — Windows 10/11 Launchers & Patched Engine Builder
+# `llama-modchip v2.5.2` — Windows 10/11 Launchers & Patched Engine Builder
 
 The `windows/` directory provides two complementary workflows on Windows 10/11:
 

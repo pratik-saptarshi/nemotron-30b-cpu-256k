@@ -1199,7 +1199,7 @@ def main():
         core_mask = sum(1 << c for c in cpu.get("physical_core_ids", [])) or 1
         print(f"\n [4] RECOMMENDED LAUNCH FLAGS FOR THIS CPU (Windows / PowerShell)")
         print(f"  One-click GPU+CPU launcher: windows\\AVVIA_MODCHIP.bat  (see windows\\README.md)")
-        print(f"  $env:LLAMA_KV_L3_WINDOW=2048; $env:LLAMA_ATTN_WINDOW=4096; $env:LLAMA_ATTN_SINKS=16")
+        print(f"  $env:LLAMA_KV_L3_WINDOW=2048; $env:LLAMA_ATTN_WINDOW=0; $env:LLAMA_ATTN_SINKS=16")
         print(f"  $env:LLAMA_SWA_STRIDE=1; $env:LLAMA_KV_DISABLE_CHUNKING=1; $env:OMP_PROC_BIND='close'; $env:OMP_PLACES='cores'")
         print(f"  llama-server.exe --model NVIDIA-Nemotron-3.5-30B-A3B-VQ3-64.gguf `")
         print(f"    -c 262144 -np 1 -t {cpu['physical_cores']} -tb {cpu['physical_cores']} -b 2048 -ub 2048 --cpu-mask 0x{core_mask:X} `")
@@ -1209,7 +1209,7 @@ def main():
     else:
         print(f"\n [4] RECOMMENDED LAUNCH FLAGS FOR THIS CPU (via llama_modchip.py)")
         print(f"  python3 scripts/llama_modchip.py --model /path/to/model.gguf --apply-shm --print-cmd")
-        print(f"  export LLAMA_KV_L3_WINDOW=2048 LLAMA_ATTN_WINDOW=4096 LLAMA_ATTN_SINKS=16 LLAMA_SWA_STRIDE=1 LLAMA_KV_DISABLE_CHUNKING=1 OMP_PROC_BIND=close OMP_PLACES=cores")
+        print(f"  export LLAMA_KV_L3_WINDOW=2048 LLAMA_ATTN_WINDOW=0 LLAMA_ATTN_SINKS=16 LLAMA_SWA_STRIDE=1 LLAMA_KV_DISABLE_CHUNKING=1 OMP_PROC_BIND=close OMP_PLACES=cores")
         print(f"  taskset -c {cpu['taskset_mask']} llama-server --model NVIDIA-Nemotron-3.5-30B-A3B-VQ3-64.gguf \\")
         print(f"    -c 262144 -np 1 -t {cpu['physical_cores']} -tb {cpu['physical_cores']} -b 2048 -ub 2048 \\")
         print(f"    --cache-type-k q8_0 --cache-type-v q4_0 --repack --flash-attn auto --cache-reuse 256 --slot-save-path /dev/shm \\")

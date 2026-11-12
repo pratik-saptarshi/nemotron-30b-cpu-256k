@@ -1,0 +1,23 @@
+[RouteCrack+Stockfish-PVS] Initialized: 0 cascade tables, 0 hot rules, 0 macro entries, 1 warm trie nodes, 192KB L2 Zobrist TT
+[GGML-MODCHIP] Full 256K Global Attention ACTIVE: Window=FULL, L3 NTA Window=2048
+0.01.782.856 I 
+0.01.783.371 I system_info: n_threads = 16 (n_threads_batch = 16) / 32 | CPU : SSE3 = 1 | SSSE3 = 1 | AVX = 1 | AVX2 = 1 | F16C = 1 | FMA = 1 | BMI2 = 1 | AVX512 = 1 | AVX512_VBMI = 1 | AVX512_VNNI = 1 | LLAMAFILE = 1 | OPENMP = 1 | REPACK = 1 | 
+0.01.783.378 I perplexity: tokenizing the input ..
+0.02.227.107 I perplexity: tokenization took 443.721 ms
+0.02.227.257 I perplexity: calculating perplexity over 12 chunks, n_ctx=5632, batch_size=5632, n_seq=1
+2.26.626.880 I perplexity: 144.40 seconds per pass - ETA 28.87 minutes
+       0  9.6049  2.262274  0.050236
+    5632  7.8715  2.063246  0.035139
+   11264  7.2411  1.979771  0.028198
+   16896  7.3222  1.990905  0.024482
+   22528  7.4973  2.014539  0.021860
+   28160  7.5529  2.021931  0.019753
+   33792  7.2642  1.982954  0.018310
+   39424  7.3086  1.989056  0.017092
+   45056  7.4855  2.012969  0.016203
+   50688  7.7591  2.048861  0.015519
+   56320  7.5706  2.024276  0.014714
+   61952  7.5133  2.016673  0.014030
+
+29.14.894.892 I Final estimate: PPL = 7.5133 +/- 0.10541
+

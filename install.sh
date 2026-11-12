@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# install.sh — Interactive Zero-to-Running Installer for llama-modchip (v2.5.1)
+# install.sh — Interactive Zero-to-Running Installer for llama-modchip (v2.5.2)
 # ==============================================================================
 # Usage:
 #   One-liner (from scratch):
@@ -161,7 +161,7 @@ python3 "${REPO_ROOT}/scripts/check_cpu_readiness.py" || true
 
 # Detect physical CPU core count, total host RAM, and x86_64 SIMD prebuilt compatibility
 PHYS_CORES="$(python3 -c '
-import os
+import os, platform, subprocess
 cores = set()
 try:
     with open("/proc/cpuinfo") as f:
@@ -173,12 +173,22 @@ try:
                 cores.add((phys_id, core_id))
 except Exception:
     pass
-print(len(cores) if cores else (os.cpu_count() or 8))
+n = len(cores)
+if n == 0 and platform.system() == "Darwin":
+    for key in ("hw.perflevel0.physicalcpu", "hw.physicalcpu"):
+        try:
+            v = int(subprocess.check_output(["sysctl", "-n", key], stderr=subprocess.DEVNULL).strip())
+            if v > 0:
+                n = v
+                break
+        except Exception:
+            pass
+print(n if n > 0 else (os.cpu_count() or 8))
 ')"
 
 TOTAL_RAM_GB="$(python3 -c '
-import glob
-ram_gb = 32
+import glob, platform, subprocess
+ram_gb = 0
 try:
     with open("/proc/meminfo") as f:
         for line in f:
@@ -187,6 +197,13 @@ try:
                 break
 except Exception:
     pass
+if ram_gb == 0 and platform.system() == "Darwin":
+    try:
+        ram_gb = int(subprocess.check_output(["sysctl", "-n", "hw.memsize"], stderr=subprocess.DEVNULL).strip()) // (1024 ** 3)
+    except Exception:
+        pass
+if ram_gb <= 0:
+    ram_gb = 32
 if ram_gb > 65536:
     try:
         numa_kb = 0
@@ -319,18 +336,18 @@ else
             MODEL_FAMILY="dsv4"
             MODEL_LABEL="DeepSeek-V4-Flash-0731-MaxQ-Fractal (284B · 56.93 GiB · 3 shards)"
             MODEL_REPO="Synchopate/DeepSeek-V4-Flash-0731-MaxQ-Fractal-64GB-CPU-GGUF"
-            MODEL_REV="fc31bc54db3a317f2101a4741c9e5d9d255aa6ca"
+            MODEL_REV="83a50942d999c7c321cd7941465f7d5bb6447f29"
             MODEL_SUBDIR="dsv4-maxq-fractal"
             MODEL_SHARDS=(
                 "DeepSeek-V4-Flash-0731-MaxQ-Fractal-00001-of-00003.gguf"
                 "DeepSeek-V4-Flash-0731-MaxQ-Fractal-00002-of-00003.gguf"
                 "DeepSeek-V4-Flash-0731-MaxQ-Fractal-00003-of-00003.gguf"
             )
-            MODEL_SHARD_SIZES=(5257760 36817932704 24306173504)
+            MODEL_SHARD_SIZES=(5257728 36817932704 24306173504)
             MODEL_SHARD_SHA256S=(
-                "ac953edb3410f5a0230aa9027eee3f9ddf25ff8417fad95f33caa9233c48bd44"
-                "ca2a652e828084d54764813c5c02cad7d9181033561c879d2b959b2297e050c0"
-                "a7e591c73de1c9e4531438b9b7ecc2aeb096ca503aff3c1791a249760b7834e4"
+                "d0b0393120544960f6e346d68005ce0b8e377e905ac5397d7ff972f3e1dc7150"
+                "dd698fd772ee8e9ee82bf1fe36554cf6593de47cdd4f1b8c4eb6ef917d516f4e"
+                "1606873a1c02b4b853520a45c5a6ac43f3920e9c86de6b5dd8f41a8d3e7533f9"
             )
             ;;
         2|dsv4-vq3)
@@ -338,7 +355,7 @@ else
             MODEL_FAMILY="dsv4"
             MODEL_LABEL="DeepSeek-V4-Flash-0731-VQ3 (284B · 56.40 GiB · 3 shards)"
             MODEL_REPO="Synchopate/DeepSeek-V4-Flash-0731-VQ3-64GB-CPU-GGUF"
-            MODEL_REV="509b668a87940f6777e1a21b73f5445d54c76d39"
+            MODEL_REV="a45756f353e038c414d7487e3cf64b4683ca9f5c"
             MODEL_SUBDIR="dsv4-vq3"
             MODEL_SHARDS=(
                 "DeepSeek-V4-Flash-0731-VQ3-00001-of-00003.gguf"
@@ -357,7 +374,7 @@ else
             MODEL_FAMILY="dsv4"
             MODEL_LABEL="DeepSeek-V4-Flash-0731-Fractal (284B · 56.57 GiB · 3 shards)"
             MODEL_REPO="Synchopate/DeepSeek-V4-Flash-0731-Fractal-64GB-CPU-GGUF"
-            MODEL_REV="44719e8e235482a2efdedc54e03a303e5df0ec5f"
+            MODEL_REV="7690d621587e0c2bf01d4405e043bdb593f2fdd4"
             MODEL_SUBDIR="dsv4-fractal"
             MODEL_SHARDS=(
                 "DeepSeek-V4-Flash-0731-Fractal-00001-of-00003.gguf"
@@ -377,7 +394,7 @@ else
             IS_ABLITERATED=1
             MODEL_LABEL="DeepSeek-V4-Flash-0731-Abliterated-Fractal (284B · 56.93 GiB · 3 shards)"
             MODEL_REPO="Synchopate/DeepSeek-V4-Flash-0731-Abliterated-Fractal-64GB-CPU-GGUF"
-            MODEL_REV="374f87c564dbdfbf0a778e156fd3ac669d8ebf21"
+            MODEL_REV="3dc0965cde47b224d395bea24f903052aebfb35c"
             MODEL_SUBDIR="dsv4-abliterated-fractal"
             MODEL_SHARDS=(
                 "DeepSeek-V4-Flash-0731-Abliterated-Fractal-00001-of-00003.gguf"
@@ -396,7 +413,7 @@ else
             MODEL_FAMILY="nemotron"
             MODEL_LABEL="NVIDIA-Nemotron-3.5-30B-A3B-VQ3-64 (30B · 13.30 GiB)"
             MODEL_REPO="Synchopate/NVIDIA-Nemotron-3.5-30B-A3B-VQ3-64-CPU-GGUF"
-            MODEL_REV="3aa7d844be5a377bb935d825988d9b01fa86266c"
+            MODEL_REV="fcb7d746a742c0bff9794b510dd742094da551bc"
             MODEL_SHARDS=("NVIDIA-Nemotron-3.5-30B-A3B-VQ3-64.gguf")
             MODEL_SHARD_SIZES=(14282559040)
             MODEL_SHARD_SHA256S=("d273709749aa88fd5a5af59ed3a2d55354283e1ae8ae7483f85737dd01d42b76")
@@ -406,7 +423,7 @@ else
             MODEL_FAMILY="nemotron"
             MODEL_LABEL="NVIDIA-Nemotron-3.5-30B-A3B-Fractal-64 (30B · 14.36 GiB)"
             MODEL_REPO="Synchopate/NVIDIA-Nemotron-3.5-30B-A3B-Fractal-64-CPU-GGUF"
-            MODEL_REV="5fa6c6092d118ca12ef72ee1dafa306d3566175d"
+            MODEL_REV="810296a6524891068a37b037ae3f2f80ab038437"
             MODEL_SHARDS=("NVIDIA-Nemotron-3.5-30B-A3B-Fractal-64.gguf")
             MODEL_SHARD_SIZES=(15420034624)
             MODEL_SHARD_SHA256S=("71c22562ab908d5d3373e3a010544e977af2499e3cc476fc7646d402a8a550ee")
@@ -417,7 +434,7 @@ else
             IS_ABLITERATED=1
             MODEL_LABEL="NVIDIA-Nemotron-3.5-30B-A3B-Abliterated-VQ3-64 (30B · 13.30 GiB)"
             MODEL_REPO="Synchopate/NVIDIA-Nemotron-3.5-30B-A3B-Abliterated-VQ3-64-CPU-GGUF"
-            MODEL_REV="7279815c132fe0249d64a03ed3693b421a0e3530"
+            MODEL_REV="3a3035becd2e99589bc665c9e6daa87cc87ecc4d"
             MODEL_SHARDS=("NVIDIA-Nemotron-3.5-30B-A3B-Abliterated-VQ3-64.gguf")
             MODEL_SHARD_SIZES=(14282559488)
             MODEL_SHARD_SHA256S=("456d5561acf609850c816fa15de7dbff93bd92430f64aadd85682dacc6f02fa4")
@@ -574,19 +591,25 @@ LLAMA_BUILD_DIR="${WORKSPACE_DIR}/llama.cpp"
 
 PREBUILT_OK=0
 if [[ "$USE_PREBUILT" == "1" && -n "$X86_PREBUILT_ASSET" ]]; then
-    ASSET_URL="https://github.com/synchopate/llama-modchip/releases/download/v2.5.1/${X86_PREBUILT_ASSET}"
+    ASSET_URL="https://github.com/synchopate/llama-modchip/releases/download/v2.5.2/${X86_PREBUILT_ASSET}"
+    FALLBACK_ASSET_URL="https://github.com/synchopate/llama-modchip/releases/download/v2.5.1/${X86_PREBUILT_ASSET}"
     EXPECTED_BIN_SHA256="0001a63c29b2eb3a9438008c8757336b392eb647ef4cd966af7f6b295c527c64"
     [[ "$X86_PREBUILT_ASSET" == *-avx512 ]] && EXPECTED_BIN_SHA256="fffd7dad3fe28c45d8b9f42c5067e14431ace1b77eeac5106cb0a9948c7d5bc2"
     echo "[*] CPUID selected portable precompiled binary: ${X86_PREBUILT_ASSET}"
-    if curl -fL --progress-bar -o "${WORKSPACE_DIR}/bin/llama-server-nemotron.part" "$ASSET_URL"; then
+    if curl -fL --progress-bar -o "${WORKSPACE_DIR}/bin/llama-server-nemotron.part" "$ASSET_URL" \
+        || curl -fL --progress-bar -o "${WORKSPACE_DIR}/bin/llama-server-nemotron.part" "$FALLBACK_ASSET_URL"; then
         ACTUAL_BIN_SHA256="$(sha256sum "${WORKSPACE_DIR}/bin/llama-server-nemotron.part" | awk '{print $1}')"
         chmod +x "${WORKSPACE_DIR}/bin/llama-server-nemotron.part"
+        SMOKE_ERR=""
         if [[ "$ACTUAL_BIN_SHA256" != "$EXPECTED_BIN_SHA256" ]]; then
             rm -f "${WORKSPACE_DIR}/bin/llama-server-nemotron.part"
             echo "[!] SHA-256 mismatch on prebuilt binary (expected ${EXPECTED_BIN_SHA256}, got ${ACTUAL_BIN_SHA256}); falling back to local source build..."
             check_required_commands git cmake g++
-        elif ! "${WORKSPACE_DIR}/bin/llama-server-nemotron.part" --version >/dev/null 2>&1; then
+        elif ! SMOKE_ERR="$("${WORKSPACE_DIR}/bin/llama-server-nemotron.part" --version 2>&1)"; then
             rm -f "${WORKSPACE_DIR}/bin/llama-server-nemotron.part"
+            if [[ "$SMOKE_ERR" == *"libgomp.so.1"* ]]; then
+                echo "[!] Missing OpenMP runtime (libgomp.so.1). Install 'sudo apt-get install -y libgomp1' (Debian/Ubuntu) or 'sudo dnf install -y libgomp' (Fedora/RHEL) to run prebuilt binaries without compiling."
+            fi
             echo "[!] Prebuilt binary failed '--version' host compatibility smoke-test; falling back to local source build..."
             check_required_commands git cmake g++
         else
@@ -777,18 +800,29 @@ if [[ -n "$MODEL_PATH" ]]; then
     fi
 fi
 
+if [[ -f "${REPO_ROOT}/start_server.sh" ]]; then
+    cp -f "${REPO_ROOT}/start_server.sh" "${REPO_ROOT}/start_server.sh.bak"
+    echo "[i] Backed up existing start_server.sh -> start_server.sh.bak"
+fi
+
 cat > "${REPO_ROOT}/start_server.sh" <<EOF
 #!/usr/bin/env bash
 # Auto-generated by install.sh — Starts CPU LLM Server with llama-modchip Auto-Profiler & Stockfish-PVS
+# Usage: ./start_server.sh [/path/to/model.gguf] [extra llama-server flags, e.g. -n 4096]
 set -euo pipefail
 
 export RC_TABLES_DIR="${WORKSPACE_DIR}/routecrack"
 export LD_LIBRARY_PATH="${LLAMA_BUILD_DIR}/build/bin:\${LD_LIBRARY_PATH:-}"
 
-MODEL="\${1:-${MODEL_PATH}}"
+if [[ \$# -gt 0 && "\$1" != -* ]]; then
+    MODEL="\$1"
+    shift
+else
+    MODEL="${MODEL_PATH}"
+fi
 if [[ ! -f "\$MODEL" ]]; then
     echo "[!] Model file not found at: \$MODEL"
-    echo "    Run ./install.sh (without --skip-model) or pass /path/to/model.gguf"
+    echo "    Run ./install.sh (without --skip-model) or pass /path/to/model.gguf [extra flags]"
     exit 1
 fi
 
@@ -898,9 +932,10 @@ exec taskset -c "\${TASKSET_MASK}" "${WORKSPACE_DIR}/bin/llama-server-nemotron" 
   --spec-ngram-simple-size-n 4 \\
   --spec-ngram-simple-size-m 7 \\
   --spec-ngram-simple-min-hits 1 \\
-  --reasoning-format deepseek \\
-  --reasoning-budget 0 \\
-  \${EXTRA_ARGS_ARR[@]+"\${EXTRA_ARGS_ARR[@]}"}
+  --reasoning-format "\${REASONING_FORMAT:-deepseek}" \\
+  --reasoning-budget "\${REASONING_BUDGET:-0}" \\
+  \${EXTRA_ARGS_ARR[@]+"\${EXTRA_ARGS_ARR[@]}"} \\
+  "\$@"
 EOF
 chmod +x "${REPO_ROOT}/start_server.sh"
 

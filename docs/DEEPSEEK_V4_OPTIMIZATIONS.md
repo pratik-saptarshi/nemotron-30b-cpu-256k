@@ -85,11 +85,12 @@ $$\mathbf{y}_{\text{FFN}}(\mathbf{x}) = \mathbf{e}_{\text{shared}}(\mathbf{x}) +
 > **Important:** Never set `DSV4_MOE_TOPK` or `LLAMA_MOE_TOP_K` in the environment when loading `DeepSeek-V4-Flash` (doing so alters expected `ffn_gate_tid2eid` tensor dimensions at load time). Always control Top-K pruning through the 32-byte memory-mapped config file below.
 
 ```bash
-# Linux / macOS: write 32-byte struct to /tmp/dsv4_moe_cfg.bin (takes 0.001 ms, no server restart)
-python3 -c 'import struct; open("/tmp/dsv4_moe_cfg.bin","r+b").write(struct.pack("<8i", 5, 5, 0, 3, 43, 1, 0, 0))'   # Top-5 L2 (9.87 tok/s, +0.42% PPL)
-python3 -c 'import struct; open("/tmp/dsv4_moe_cfg.bin","r+b").write(struct.pack("<8i", 5, 5, 0, 3, 43, 1, 80, 80))' # Top-5 L2 + Gate-First SwiGLU 80/128 (10.15 tok/s)
-python3 -c 'import struct; open("/tmp/dsv4_moe_cfg.bin","r+b").write(struct.pack("<8i", 4, 4, 0, 3, 43, 1, 80, 80))' # Top-4 L2 + Gate-First SwiGLU 80/128 (10.51 tok/s)
-python3 -c 'import struct; open("/tmp/dsv4_moe_cfg.bin","r+b").write(struct.pack("<8i", 6, 6, 0, 3, 43, 1, 0, 0))'   # Top-6 Unpruned (default, 0.00% routing KLD)
+# Linux / macOS: write 32-byte struct to $DSV4_MOE_CFG_PATH (takes 0.001 ms, no server restart)
+CFG="${DSV4_MOE_CFG_PATH:-${XDG_RUNTIME_DIR:-./workspace/run}/modchip-$(id -u)/dsv4_moe_cfg.bin}"
+python3 -c 'import struct,sys; open(sys.argv[1],"r+b").write(struct.pack("<8i", 5, 5, 0, 3, 43, 1, 0, 0))'   "$CFG" # Top-5 L2 (9.87 tok/s, +0.42% PPL)
+python3 -c 'import struct,sys; open(sys.argv[1],"r+b").write(struct.pack("<8i", 5, 5, 0, 3, 43, 1, 80, 80))' "$CFG" # Top-5 L2 + Gate-First SwiGLU 80/128 (10.15 tok/s)
+python3 -c 'import struct,sys; open(sys.argv[1],"r+b").write(struct.pack("<8i", 4, 4, 0, 3, 43, 1, 80, 80))' "$CFG" # Top-4 L2 + Gate-First SwiGLU 80/128 (10.51 tok/s)
+python3 -c 'import struct,sys; open(sys.argv[1],"r+b").write(struct.pack("<8i", 6, 6, 0, 3, 43, 1, 0, 0))'   "$CFG" # Top-6 Unpruned (default, 0.00% routing KLD)
 ```
 
 ```powershell
@@ -109,7 +110,7 @@ $$\mathbf{h} = \text{SiLU}(\mathbf{W}_{\text{gate}} \mathbf{x}) \odot (\mathbf{W
    $$\alpha_{\text{SwiGLU}}^{(c)} = \sqrt{\frac{\sum_{j \in \mathcal{C}_c} \text{SiLU}(g_j)^2}{\sum_{j \in \mathcal{A}_c} \text{SiLU}(g_j)^2}}.$$
    Because $\mathbb{E}[h_j^2 \mid g_j] = \text{SiLU}(g_j)^2 \sigma_u^2$, rescaling by $\alpha_{\text{SwiGLU}}^{(c)}$ preserves 99.86%–100.00% of the output norm $\|\mathbf{W}_{\text{down}} \mathbf{h}\|_2$ entering the Hyper-Connections stream with 16-thread load balance and zero cross-thread synchronization.
 
-| Combined Runtime Profile (`il = 0..2` always `100%`) | `cfg[0..7]` in `/tmp/dsv4_moe_cfg.bin` | Decode (`tok/s`) | Latency (`ms/tok`) | **Decode Prob CosSim** | **Agentic JSON Tool-Call (`execute_shell`)** |
+| Combined Runtime Profile (`il = 0..2` always `100%`) | `cfg[0..7]` in `$DSV4_MOE_CFG_PATH` | Decode (`tok/s`) | Latency (`ms/tok`) | **Decode Prob CosSim** | **Agentic JSON Tool-Call (`execute_shell`)** |
 | :--- | :---: | :---: | :---: | :---: | :---: |
 | **1. `Top-6` + SwiGLU `80/128` (`62.5% W_up`)** | `[6, 6, 0, 3, 43, 1, 80, 80]` | **`9.71 tok/s`** | **`103.04 ms`** | **`0.99403`** | **`100% Exact Match`** |
 | **2. `Top-5 L2` + Exps SwiGLU `96/128` (`75%`)** | `[5, 5, 0, 3, 43, 1, 96, 0]` | **`9.83 tok/s`** | **`101.76 ms`** | **`0.99624`** | **`100% Exact Match`** |
@@ -119,20 +120,19 @@ $$\mathbf{h} = \text{SiLU}(\mathbf{W}_{\text{gate}} \mathbf{x}) \odot (\mathbf{W
 
 ---
 
-## 5. Shipped 64 GB Checkpoints: Single-Pass `Abliterated-Fractal` (`56.93 GiB` Default) & `LUT-VQ3-64` (`56.40 GiB` Aligned)
+## 5. Shipped 64 GB `0731` Checkpoints: Single-Pass `MaxQ-Fractal` (`56.93 GiB` Aligned Default), `LUT-VQ3-64` (`56.40 GiB`), `Fractal` (`56.57 GiB`), & Opt-In `Abliterated-Fractal`
 
-`v2.5.0` ships three 3-shard `DeepSeek-V4-Flash-0731` checkpoints tailored for 64 GB CPU hosts ([`patches/lut-vq3-64-avx512-vbmi.patch`](../patches/lut-vq3-64-avx512-vbmi.patch), [`scripts/build_dsv4_vq3.py`](../scripts/build_dsv4_vq3.py), [`benchmarks/QUALITY_GATE_VQ3_64.md`](../benchmarks/QUALITY_GATE_VQ3_64.md)):
+`v2.5.2` ships four 3-shard `DeepSeek-V4-Flash-0731` checkpoints tailored for 64 GB CPU hosts ([`scripts/build_dsv4_maxq_singlepass.py`](../scripts/build_dsv4_maxq_singlepass.py), [`patches/lut-vq3-64-avx512-vbmi.patch`](../patches/lut-vq3-64-avx512-vbmi.patch), [`scripts/build_dsv4_vq3.py`](../scripts/build_dsv4_vq3.py), [`benchmarks/QUALITY_GATE_VQ3_64.md`](../benchmarks/QUALITY_GATE_VQ3_64.md)):
 
-- **Default DeepSeek Checkpoint — [`DeepSeek-V4-Flash-0731-Abliterated-Fractal`](https://huggingface.co/Synchopate/DeepSeek-V4-Flash-0731-Abliterated-Fractal-64GB-CPU-GGUF) (`56.93 GiB` / `61.13 GB`, `59.13 GiB` `VmRSS`):**
-  - Quantizes all `130` dense bottleneck tensors (`token_embd`, `output`, `43× attn_q_a`, `43× ffn_{gate,up,down}_shexp`) in a single pass directly from `prem-research/DeepSeek-V4-Flash-0731-abliterated` (`BF16` + native `FP8_E4M3` block-128) into `Q6_K`, eliminating `FP8 -> Q5_K/Q4_K` generational loss while preserving 100% of MLA attention in `Fractal-64` (`GGML_TYPE_Q2_0 = 42`, `3.75 bpw`).
-  - Achieves **`1.7597 ± 0.06534` `PPL` (`-3.76%` vs `1.8284`)**, **`70.0 / 80.0`** on the Functional Gate (`30/30` Tool-Calling, `20/20` Needle/Math), and **`50.0 / 60.0`** on the `Hard-60` suite at `8.75–9.50 tok/s` `N=1` decode.
-  - *Responsible-Use Note:* Upstream refusal filters are disabled on this abliterated checkpoint (intended for authorized security research, CTF, auditing, and local offline development; do not expose unmoderated to public networks).
-- **Standard Safety-Aligned Hybrid — [`DeepSeek-V4-Flash-0731-VQ3`](https://huggingface.co/Synchopate/DeepSeek-V4-Flash-0731-VQ3-64GB-CPU-GGUF) (`56.40 GiB` / `60.56 GB`, 3 shards on Hugging Face):**
-  - Preserves **100% of MLA attention and compressor projections** (`attn_q_b`, `attn_output_a`, `attn_output_b`, `attn_kv`, `attn_compressor_*`, `indexer_compressor_*`) untouched in **`Fractal-64` (`GGML_TYPE_Q2_0 = 42`, `3.75 bpw`)** so latent KV phase geometry experiences zero double-quantization.
-  - Preserves boundary shared experts (`blk.0..4`, `blk.39..42`) and all 43 `ffn_down_shexp` projections in `Q5_K` / `Q6_K`.
-  - Encodes the **68 interior pre-`SiLU` shared-expert projections (`blk.5..38` `ffn_gate_shexp` & `ffn_up_shexp`)** into **`LUT-VQ3-64` (`GGML_TYPE_VQ3_0 = 43`, `24 B / 64 W = 3.00 bpw`)**, decoded in registers via AVX-512 VBMI `VPERMI2B`.
+- **Safety-Aligned Default — [`DeepSeek-V4-Flash-0731-MaxQ-Fractal`](https://huggingface.co/Synchopate/DeepSeek-V4-Flash-0731-MaxQ-Fractal-64GB-CPU-GGUF) (`56.93 GiB` / `61.13 GB`, `57.54–59.13 GiB` `VmRSS`, `./modchip setup` default `dsv4-maxq`):**
+  - Quantizes all `174` dense 100%-active bottleneck tensors (`token_embd`, `output`, `43× attn_q_a`, `43× ffn_{gate,up,down}_shexp` -> `173 × Q6_K + 1 × Q8_0`) and `317` MLA/Indexer tensors (`Fractal-64`, `GGML_TYPE_Q2_0 = 42`, `3.75 bpw`) in a single pass directly from `deepseek-ai/DeepSeek-V4-Flash-0731` (`7872f01b1d1f`), paired with `@antirez`'s `1.5M`-token `imatrix` routed MoE.
+  - Achieves **`7.5133 ± 0.1054` `PPL`** on `AtomicChat/dsv4-eval-artifacts` `wiki-alt.txt` (`-c 5632 -b 5632`, `12` chunks = `33,780` scored tokens — `-20.3%` lower PPL than `103.06 GB` `Q2_K`), **`11.7434 ± 0.5717` `PPL`** on `WikiText-2` (`wiki.test.raw`, `8,192` tok), **`84.0 / 100.0`** on [`benchmarks/eval_quality_and_tools.py`](../benchmarks/eval_quality_and_tools.py) (`64.0/80` quality + `20/20` speed at `11.31 tok/s` `80.3%` PVS acc), and **`8 / 8`** on the dual-use technical security audit.
+- **Compact Safety-Aligned Hybrid — [`DeepSeek-V4-Flash-0731-VQ3`](https://huggingface.co/Synchopate/DeepSeek-V4-Flash-0731-VQ3-64GB-CPU-GGUF) (`56.40 GiB` / `60.56 GB`, `--preset dsv4-vq3`):**
+  - Preserves **100% of MLA attention and compressor projections** (`attn_q_b`, `attn_output_a`, `attn_output_b`, `attn_kv`, `attn_compressor_*`, `indexer_compressor_*`) untouched in **`Fractal-64` (`GGML_TYPE_Q2_0 = 42`, `3.75 bpw`)**, boundary shared experts (`blk.0..4`, `blk.39..42`) and all 43 `ffn_down_shexp` in `Q5_K`/`Q6_K`, and encodes the **68 interior pre-`SiLU` shared-expert projections (`blk.5..38` `ffn_gate_shexp` & `ffn_up_shexp`)** into **`LUT-VQ3-64` (`GGML_TYPE_VQ3_0 = 43`, `24 B / 64 W = 3.00 bpw`)** (`wiki-alt.txt` `ctx=5632` `PPL = 7.6579 ± 0.1077`, `WikiText-2` `PPL = 12.2345 ± 0.5976`, `0.3146 nats/tok` KLD & `100%` Top-5 match vs `MaxQ-0731`).
 - **Aggressive 255-Tensor Full-VQ3 Ablation (`--aggressive`, `56.07 GiB` disk / `58.31 GiB` `VmRSS`):**
-  - Also encodes MLA expansion projections (`attn_q_b`, `attn_output_a`, `compressor_*`) and all 43 `ffn_gate_shexp` + `ffn_up_shexp` tensors into `VQ3_0`, boosting raw `N=1` `tg64` decode by **`+16.9%` (`9.05 tok/s` vs `7.74 tok/s`)**, `pp128` prefill by **`+8.8%` (`41.11 tok/s`)**, and agentic tool bursts to **`19.4–25.3 tok/s`** while passing `30/30` Tool-Calling and `20/20` Long-Context Needle & Math.
+  - Also encodes MLA expansion projections (`attn_q_b`, `attn_output_a`, `compressor_*`) and all 43 `ffn_gate_shexp` + `ffn_up_shexp` tensors into `VQ3_0`, boosting raw `N=1` `tg64` decode by **`+16.9%` (`9.05 tok/s` vs `7.74 tok/s`)**, `pp128` prefill by **`+8.8%` (`41.11 tok/s`)**, and agentic tool bursts to **`19.4–25.3 tok/s`**.
+- **Opt-In Uncensored Single-Pass Variant — [`DeepSeek-V4-Flash-0731-Abliterated-Fractal`](https://huggingface.co/Synchopate/DeepSeek-V4-Flash-0731-Abliterated-Fractal-64GB-CPU-GGUF) (`56.93 GiB` / `61.13 GB`, `--preset dsv4-ablit`):**
+  - Applies the same `174 × Q6_K/Q8_0` + `Fractal-64` single-pass layout to `prem-research/DeepSeek-V4-Flash-0731-abliterated` (`WikiText-2` `PPL = 11.3944 ± 0.5650`, `1.0219 nats/tok` KLD vs `MaxQ-0731`, `70.0 / 80` Gate via Gateway). Requires explicit confirmation (`[y/N]` or `--accept-abliterated`); intended strictly for authorized offline security research and auditing.
 
 ```bash
 # Build shipped conservative 56.40 GiB Hybrid (default) or 56.07 GiB aggressive ablation:

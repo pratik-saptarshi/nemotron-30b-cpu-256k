@@ -700,12 +700,9 @@ def compute_modchip_profile(hw: HardwareInfo, model: GGUFModelInfo, swa_override
         rc_cert_d0, rc_cert_d1, rc_cert_d2 = 78, 88, 94
 
     # 4. Norm-Preserving Dynamic MoE Top-K Pruning (LLAMA_MOE_TOP_K)
-    if model.arch == "deepseek4":
-        moe_top_k = 0
-    elif model.is_moe and model.expert_used_count >= 6:
-        moe_top_k = 4
-    else:
-        moe_top_k = 0
+    # Default to unpruned native Top-K (moe_top_k = 0) across all architectures;
+    # users can opt into Top-4 speed mode via LLAMA_MOE_TOP_K=4 or [SPACE] in --tui.
+    moe_top_k = 0
 
     disable_chunking = 1
     use_repack = hw.has_avx512_vnni or hw.has_avx2

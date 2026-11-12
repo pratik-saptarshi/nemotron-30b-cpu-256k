@@ -1,15 +1,15 @@
 {
-  "timestamp": "2026-11-12T12:03:09+0000",
+  "timestamp": "2026-11-12T21:27:31+0000",
   "kld": {
     "num_probes": 12,
-    "mean_kld_nats": 1.34437,
-    "equiv_ppl_delta_pct": 283.577,
-    "top1_agreement_pct": 50.0,
+    "mean_kld_nats": 1.021914,
+    "equiv_ppl_delta_pct": 177.851,
+    "top1_agreement_pct": 58.33,
     "top5_agreement_pct": 91.67,
     "probes": [
       {
         "probe": "C_SIMD_Dot",
-        "kld_nats": 0.337571,
+        "kld_nats": 0.195123,
         "ref_top1": " _",
         "cand_top1": " _",
         "top1_match": true,
@@ -17,7 +17,7 @@
       },
       {
         "probe": "Py_Async_Pool",
-        "kld_nats": 0.804055,
+        "kld_nats": 0.193147,
         "ref_top1": " fn",
         "cand_top1": " #",
         "top1_match": false,
@@ -25,7 +25,7 @@
       },
       {
         "probe": "Py_LRU_Lock",
-        "kld_nats": 2.256182,
+        "kld_nats": 0.552676,
         "ref_top1": " key",
         "cand_top1": " key",
         "top1_match": true,
@@ -33,7 +33,7 @@
       },
       {
         "probe": "SQL_Window_Rank",
-        "kld_nats": 0.612302,
+        "kld_nats": 0.932485,
         "ref_top1": "3",
         "cand_top1": "10",
         "top1_match": false,
@@ -41,15 +41,15 @@
       },
       {
         "probe": "Math_Euler_Totient",
-        "kld_nats": 0.783397,
-        "ref_top1": "30",
+        "kld_nats": 0.156299,
+        "ref_top1": "8",
         "cand_top1": "8",
-        "top1_match": false,
+        "top1_match": true,
         "top5_match": true
       },
       {
         "probe": "Systems_KV_Bandwidth",
-        "kld_nats": 2.736521,
+        "kld_nats": 1.65608,
         "ref_top1": "612",
         "cand_top1": "612",
         "top1_match": true,
@@ -57,15 +57,15 @@
       },
       {
         "probe": "JSON_Tool_Schema",
-        "kld_nats": 3.733771,
+        "kld_nats": 3.750708,
         "ref_top1": " \\\"",
         "cand_top1": "1",
         "top1_match": false,
-        "top5_match": false
+        "top5_match": true
       },
       {
         "probe": "Rust_Lifetime_Slice",
-        "kld_nats": 1.52316,
+        "kld_nats": 1.066966,
         "ref_top1": "if",
         "cand_top1": "0",
         "top1_match": false,
@@ -73,7 +73,7 @@
       },
       {
         "probe": "Linux_Proc_Meminfo",
-        "kld_nats": 1.041356,
+        "kld_nats": 0.844856,
         "ref_top1": " (",
         "cand_top1": " (",
         "top1_match": true,
@@ -81,23 +81,23 @@
       },
       {
         "probe": "Quant_Lloyd_Max",
-        "kld_nats": 0.432538,
+        "kld_nats": 0.768396,
         "ref_top1": "1",
-        "cand_top1": "8",
-        "top1_match": false,
-        "top5_match": true
-      },
-      {
-        "probe": "Algo_Dijkstra_Heap",
-        "kld_nats": 1.42015,
-        "ref_top1": "V",
-        "cand_top1": "V",
+        "cand_top1": "1",
         "top1_match": true,
         "top5_match": true
       },
       {
+        "probe": "Algo_Dijkstra_Heap",
+        "kld_nats": 1.629113,
+        "ref_top1": "0",
+        "cand_top1": " v",
+        "top1_match": false,
+        "top5_match": false
+      },
+      {
         "probe": "HTTP_Chunked_Parser",
-        "kld_nats": 0.451431,
+        "kld_nats": 0.517124,
         "ref_top1": " smuggling",
         "cand_top1": " smuggling",
         "top1_match": true,

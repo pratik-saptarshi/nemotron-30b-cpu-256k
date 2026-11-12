@@ -61,10 +61,17 @@ function Find-Model {
         return (Resolve-Path $Model).Path
     }
     if (-not (Test-Path $ModelDir)) { throw "Model folder not found: $ModelDir" }
-    # Prefer shard 1 of a split GGUF, otherwise the largest single .gguf
-    $shard1 = Get-ChildItem -LiteralPath $ModelDir -Filter "*.gguf" -File |
-              Where-Object { $_.Name -match "-00001-of-\d+\.gguf$" } |
-              Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    # Prefer safety-aligned split GGUFs first (MaxQ-Fractal -> VQ3 -> Fractal), then opt-in Abliterated
+    $shard1Files = @(Get-ChildItem -LiteralPath $ModelDir -Filter "*.gguf" -File |
+                     Where-Object { $_.Name -match "-00001-of-\d+\.gguf$" })
+    foreach ($pat in @("MaxQ-Fractal", "VQ3", "Fractal", "Abliterated")) {
+        $match = $shard1Files | Where-Object {
+            if ($pat -eq "Abliterated") { $_.Name -match "Abliterated" }
+            else { ($_.Name -notmatch "Abliterated") -and ($_.Name -match $pat) }
+        } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        if ($match) { return $match.FullName }
+    }
+    $shard1 = $shard1Files | Sort-Object LastWriteTime -Descending | Select-Object -First 1
     if ($shard1) { return $shard1.FullName }
     $any = Get-ChildItem -LiteralPath $ModelDir -Filter "*.gguf" -File | Sort-Object Length -Descending | Select-Object -First 1
     if ($any) { return $any.FullName }
@@ -134,7 +141,7 @@ $modelInfo = Get-Item -LiteralPath $modelPath
 $modelGB = [math]::Round($modelInfo.Length / 1GB, 2)
 $patched = $exe -like "*bin-modchip*" -or $exe -like "*build-mingw*"
 
-Write-Head "llama-modchip v2.5.0 -- DeepSeek-V4-Flash (VQ3-64 / Fractal-64) on Windows"
+Write-Head "llama-modchip v2.5.2 -- DeepSeek-V4-Flash (MaxQ-Fractal / VQ3-64 / Fractal-64) on Windows"
 
 if ($Threads -le 0) { $Threads = [math]::Max(1, $hw.PhysCores) }
 

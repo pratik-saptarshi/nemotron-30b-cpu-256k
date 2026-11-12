@@ -2,6 +2,7 @@
 workspace/
 llama.cpp/
 start_server.sh
+start_server.sh.bak
 start_gateway.sh
 *.gguf
 *.part

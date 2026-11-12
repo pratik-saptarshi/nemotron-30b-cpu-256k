@@ -4,18 +4,18 @@ Single-Pass Max-Quality 64GB GGUF Builder for DeepSeek-V4-Flash-0731 (56.93 GiB)
 
 Reproduces both:
   1. Aligned Default:   Synchopate/DeepSeek-V4-Flash-0731-MaxQ-Fractal-64GB-CPU-GGUF
-                        (base: deepseek-ai/DeepSeek-V4-Flash @ 60d8d70770c6776ff598c94bb586a859a38244f1)
+                        (base: deepseek-ai/DeepSeek-V4-Flash-0731 @ 7872f01b1d1fe23eabc4c98b48bffcef5a386062)
   2. Uncensored Opt-In: Synchopate/DeepSeek-V4-Flash-0731-Abliterated-Fractal-64GB-CPU-GGUF
-                        (base: prem-research/DeepSeek-V4-Flash-0731-abliterated)
+                        (base: prem-research/DeepSeek-V4-Flash-0731-abliterated @ 457210de3a9d27d8142407cd0dac7b6ed6ad9325)
 
-Architecture & Quantization Recipe (61,129,364,000 bytes / 56.93 GiB across 3 shards):
+Architecture & Quantization Recipe (61,129,363,968 / 61,129,364,000 bytes / 56.93 GiB across 3 shards):
   - All 1,199 non-routed-MoE tensors quantized in a SINGLE PASS directly from native FP8_E4M3 / BF16 safetensors:
       * 173 x Q6_K + 1 x Q8_0 (174 dense 100%-active bottlenecks: token_embd, output, 43x attn_q_a, 43x3 shared_experts;
         upgrades 130 tensors that were Q4_K/Q5_K/VQ3_0 in the 56.40 GiB VQ3 / 56.57 GiB Fractal builds)
       * 317 x Q2_0 (Fractal-64, 3.75 bpw) across MLA & Lightning Indexer projections
       * 662 x F32 + 43 x BF16 + 3 x I32 across RMSNorms, MoE routers, attention sinks, Hyper-Connections, and tid2eid
-  - All 129 routed-MoE 3D tensors (MXFP4 -> IQ2_XXS / IQ1_S / IQ1_M weighted by @antirez's 1.5M-token chat-v2 imatrix)
-    copied byte-for-byte from the matching single-pass routed-MoE donor GGUF.
+  - All 129 routed-MoE 3D tensors (MXFP4 -> IQ2_XXS / IQ1_S / IQ1_M importance-calibrated on DeepSeek-V4-Flash-0731)
+    copied byte-for-byte from the matching 0731 routed-MoE donor GGUF.
 """
 import argparse
 import concurrent.futures
@@ -267,21 +267,22 @@ def main():
         pass
 
     if args.mode == "aligned":
-        hf_repo = args.hf_repo or "deepseek-ai/DeepSeek-V4-Flash"
-        hf_rev = args.hf_rev or "60d8d70770c6776ff598c94bb586a859a38244f1"
+        hf_repo = args.hf_repo or "deepseek-ai/DeepSeek-V4-Flash-0731"
+        hf_rev = args.hf_rev or "7872f01b1d1fe23eabc4c98b48bffcef5a386062"
         overrides = {
             "general.name": "DeepSeek-V4-Flash-0731-MaxQ-Fractal-64GB",
             "general.quantized_by": "Synchopate (llama-modchip)",
             "general.repo_url": "https://github.com/synchopate/llama-modchip",
-            "general.base_model.0.name": "DeepSeek-V4-Flash",
+            "general.base_model.0.name": "DeepSeek-V4-Flash-0731",
+            "general.base_model.0.version": "0731",
             "general.base_model.0.organization": "DeepSeek",
-            "general.base_model.0.repo_url": "https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash",
-            "quantize.imatrix.file": "antirez/deepseek-v4-gguf/imatrix/DeepSeek-V4-Flash-chat-v2-routed-moe-ds4-1p5m.dat",
-            "quantize.imatrix.dataset": "antirez ds4 routed-moe 1.5M tokens chat-v2",
+            "general.base_model.0.repo_url": "https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash-0731",
+            "quantize.imatrix.file": "DeepSeek-V4-Flash-0731-GGUF/imatrix_unsloth.gguf",
+            "quantize.imatrix.dataset": "unsloth_calibration_DeepSeek-V4-Flash-0731.txt",
         }
     else:
         hf_repo = args.hf_repo or "prem-research/DeepSeek-V4-Flash-0731-abliterated"
-        hf_rev = args.hf_rev or "main"
+        hf_rev = args.hf_rev or "457210de3a9d27d8142407cd0dac7b6ed6ad9325"
         overrides = {
             "general.name": "DeepSeek-V4-Flash-0731-Abliterated-Fractal-64GB",
             "general.quantized_by": "Synchopate (llama-modchip)",

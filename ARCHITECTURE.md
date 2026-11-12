@@ -604,7 +604,7 @@ We solve all three walls in [`patches/deepseek-v4-flash-fractal-256k.patch`](pat
    - Rescaling kept experts linearly ($\alpha_{L_1} = \sum_{i=1}^6 w_i / \sum_{i=1}^k w_i \approx 1.23$) inflates the routed MoE branch relative to the unscaled dense shared expert (`ffn_out = moe_out + ffn_shexp`), whereas **$L_2$-quadrature rescaling** ($\alpha_{L_2} = \sqrt{\sum_{i=1}^6 w_i^2 / \sum_{i=1}^k w_i^2}$) preserves the exact variance entering `RMSNorm` and cuts KL-divergence by **`-58%`**:
      - **`Top-5` (`il >= 3`, $L_2$)**: **`9.68 tok/s` (`103.27 ms/tok`)**, **`0.99714` (`99.71%`) probability cosine similarity**, **`0.0042 nats` KL-divergence (`+0.42%` PPL)**, **`100%` Top-3 agreement**.
      - **`Top-4` (`il >= 3`, $L_2$)**: **`10.12 tok/s` (`98.84 ms/tok`)**, **`0.99587` (`99.59%`) probability cosine similarity**, **`0.0281 nats` KL-divergence (`+2.85%` PPL)**, **`100%` Top-3 agreement**.
-     - Controlled at runtime with zero syscall overhead (`0.3 ns`) via memory-mapped `/tmp/dsv4_moe_cfg.bin` on Linux/macOS and `%TEMP%\dsv4_moe_cfg.bin` (`CreateFileMappingA` / `MapViewOfFile`) on Windows (`_WIN32`).
+     - Controlled at runtime with zero syscall overhead (`0.3 ns`) via memory-mapped `$DSV4_MOE_CFG_PATH` (configured by `install.sh` / `modchip` inside a `0700` user-private directory `${XDG_RUNTIME_DIR:-./workspace/run}/modchip-$(id -u)/dsv4_moe_cfg.bin`, falling back to `/tmp/dsv4_moe_cfg.bin` only when `DSV4_MOE_CFG_PATH` is unset) on Linux/macOS and `%TEMP%\dsv4_moe_cfg.bin` (`CreateFileMappingA` / `MapViewOfFile`) on Windows (`_WIN32`).
 
 ---
 
