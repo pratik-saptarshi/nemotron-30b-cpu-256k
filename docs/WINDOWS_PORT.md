@@ -52,9 +52,12 @@ The script clones `ggml-org/llama.cpp` at **`d2f83055`**, applies `deepseek-v4-f
 
 Key flags: `-DGGML_NATIVE=ON -DGGML_OPENMP=OFF -DBUILD_SHARED_LIBS=OFF -DCMAKE_EXE_LINKER_FLAGS="-static -Wl,--stack,16777216" -D_WIN32_WINNT=0x0A00`.
 
-## 4. Measured performance (`Ryzen 7 9800X3D`, `DeepSeek-V4-Flash 284B`)
+## 4. Measured performance (`Ryzen 9 9950X3D` & `Ryzen 7 9800X3D`, `DeepSeek-V4-Flash 284B`)
 
-`llama-bench -r 3`, `-t 8`, KV `q8_0`, flash-attn on:
+**AMD Ryzen 9 9950X3D** (`16C/32T`, `2 CCDs`, `128 MB` L3, `128 GB` DDR5-6000, `-t 16`, KV `q8_0`, flash-attn on, `DeepSeek-V4-Flash-0731-Abliterated-Fractal` `56.93 GiB` — [`@kevinblo`, Issue #33](https://github.com/synchopate/llama-modchip/issues/33)):
+- **CPU, Top-K 6 (unpruned default)**: **`27.55 ± 0.05 tok/s` `pp512`** · **`8.11 ± 0.07 tok/s` `tg128`** (`+28%` decode and `+29%` prefill vs 1-CCD `9800X3D` Top-6 thanks to dual-CCD GMI3 read bandwidth).
+
+**AMD Ryzen 7 9800X3D** (`8C/16T`, `96 MB` L3, `64 GB` DDR5, `llama-bench -r 3`, `-t 8`, KV `q8_0`, flash-attn on — [`@MR1KRAKEN`, Issue #28](https://github.com/synchopate/llama-modchip/issues/28)):
 
 | Configuration | pp512 | tg128 |
 | :--- | ---: | ---: |
