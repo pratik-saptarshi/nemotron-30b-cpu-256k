@@ -40,6 +40,7 @@ body:
     attributes:
       label: "Model / Tool Tested"
       options:
+        - "DeepSeek-V4-Flash-0731-Abliterated-Fractal (284.33B Total / 13.17B Active, 56.93 GiB — Default DeepSeek)"
         - "DeepSeek-V4-Flash-0731-VQ3 (284.33B Total / 13.17B Active, 56.40 GiB)"
         - "DeepSeek-V4-Flash-0731-Fractal (284.33B Total / 13.17B Active, 56.57 GiB)"
         - "NVIDIA-Nemotron-3.5-30B-A3B-VQ3-64 (30.2B Total / 3.0B Active, 13.30 GiB)"

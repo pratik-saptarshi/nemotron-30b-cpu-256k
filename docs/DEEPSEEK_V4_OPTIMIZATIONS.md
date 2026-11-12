@@ -119,11 +119,15 @@ $$\mathbf{h} = \text{SiLU}(\mathbf{W}_{\text{gate}} \mathbf{x}) \odot (\mathbf{W
 
 ---
 
-## 5. Domain-Aware `LUT-VQ3-64` Compression (`GGML_TYPE_VQ3_0 = 43`, `56.40 GiB` Shipped / `56.07 GiB` Ablation)
+## 5. Shipped 64 GB Checkpoints: Single-Pass `Abliterated-Fractal` (`56.93 GiB` Default) & `LUT-VQ3-64` (`56.40 GiB` Aligned)
 
-Introduced in `v2.5.0` ([`patches/lut-vq3-64-avx512-vbmi.patch`](../patches/lut-vq3-64-avx512-vbmi.patch), [`scripts/build_dsv4_vq3.py`](../scripts/build_dsv4_vq3.py), [`benchmarks/QUALITY_GATE_VQ3_64.md`](../benchmarks/QUALITY_GATE_VQ3_64.md)):
+`v2.5.0` ships three 3-shard `DeepSeek-V4-Flash-0731` checkpoints tailored for 64 GB CPU hosts ([`patches/lut-vq3-64-avx512-vbmi.patch`](../patches/lut-vq3-64-avx512-vbmi.patch), [`scripts/build_dsv4_vq3.py`](../scripts/build_dsv4_vq3.py), [`benchmarks/QUALITY_GATE_VQ3_64.md`](../benchmarks/QUALITY_GATE_VQ3_64.md)):
 
-- **Shipped Conservative Hybrid (`56.40 GiB` / `60.56 GB`, 3 shards on Hugging Face):**
+- **Default DeepSeek Checkpoint — [`DeepSeek-V4-Flash-0731-Abliterated-Fractal`](https://huggingface.co/Synchopate/DeepSeek-V4-Flash-0731-Abliterated-Fractal-64GB-CPU-GGUF) (`56.93 GiB` / `61.13 GB`, `59.13 GiB` `VmRSS`):**
+  - Quantizes all `130` dense bottleneck tensors (`token_embd`, `output`, `43× attn_q_a`, `43× ffn_{gate,up,down}_shexp`) in a single pass directly from `prem-research/DeepSeek-V4-Flash-0731-abliterated` (`BF16` + native `FP8_E4M3` block-128) into `Q6_K`, eliminating `FP8 -> Q5_K/Q4_K` generational loss while preserving 100% of MLA attention in `Fractal-64` (`GGML_TYPE_Q2_0 = 42`, `3.75 bpw`).
+  - Achieves **`1.7597 ± 0.06534` `PPL` (`-3.76%` vs `1.8284`)**, **`70.0 / 80.0`** on the Functional Gate (`30/30` Tool-Calling, `20/20` Needle/Math), and **`50.0 / 60.0`** on the `Hard-60` suite at `8.75–9.50 tok/s` `N=1` decode.
+  - *Responsible-Use Note:* Upstream refusal filters are disabled on this abliterated checkpoint (intended for authorized security research, CTF, auditing, and local offline development; do not expose unmoderated to public networks).
+- **Standard Safety-Aligned Hybrid — [`DeepSeek-V4-Flash-0731-VQ3`](https://huggingface.co/Synchopate/DeepSeek-V4-Flash-0731-VQ3-64GB-CPU-GGUF) (`56.40 GiB` / `60.56 GB`, 3 shards on Hugging Face):**
   - Preserves **100% of MLA attention and compressor projections** (`attn_q_b`, `attn_output_a`, `attn_output_b`, `attn_kv`, `attn_compressor_*`, `indexer_compressor_*`) untouched in **`Fractal-64` (`GGML_TYPE_Q2_0 = 42`, `3.75 bpw`)** so latent KV phase geometry experiences zero double-quantization.
   - Preserves boundary shared experts (`blk.0..4`, `blk.39..42`) and all 43 `ffn_down_shexp` projections in `Q5_K` / `Q6_K`.
   - Encodes the **68 interior pre-`SiLU` shared-expert projections (`blk.5..38` `ffn_gate_shexp` & `ffn_up_shexp`)** into **`LUT-VQ3-64` (`GGML_TYPE_VQ3_0 = 43`, `24 B / 64 W = 3.00 bpw`)**, decoded in registers via AVX-512 VBMI `VPERMI2B`.

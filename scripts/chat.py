@@ -119,7 +119,9 @@ def detect_active_model(base_url: str) -> Tuple[str, str, str]:
     base_clean = re.sub(r"-0000\d-of-0000\d\.gguf$|\.gguf$", "", base_name, flags=re.IGNORECASE)
     low = base_clean.lower()
     if "deepseek" in low or "dsv4" in low:
-        if "vq3" in low:
+        if "abliterated" in low:
+            display = f"{base_clean} (284B MoE / 13.2B Active · Single-Pass Q6_K + Fractal-64 · Uncensored)"
+        elif "vq3" in low:
             display = f"{base_clean} (284B MoE / 13.2B Active · LUT-VQ3-64 3.00-bpw + Fractal-64)"
         elif "fractal" in low:
             display = f"{base_clean} (284B MoE / 13.2B Active · SwiGLU-H2 + Fractal-64 Q2_0)"
@@ -671,7 +673,7 @@ def run_benchmark_suite(base_url: str) -> None:
     aff_header = get_server_affinity_summary(base_url)
     raw_model, model_display, _ = detect_active_model(base_url)
     print(f"\n{BOLD}{CYAN}╔════════════════════════════════════════════════════════════════════════════════════╗{RESET}")
-    print(f"{BOLD}{CYAN}║ ♟️  llama-modchip v2.4 — Automated 2-Stage CPU Benchmark Suite                      ║{RESET}")
+    print(f"{BOLD}{CYAN}║ ♟️  llama-modchip v2.5.0 — Automated 2-Stage CPU Benchmark Suite                    ║{RESET}")
     print(f"{BOLD}{CYAN}╚════════════════════════════════════════════════════════════════════════════════════╝{RESET}")
     print(f"  • Hardware : {hw_header}")
     if aff_header:

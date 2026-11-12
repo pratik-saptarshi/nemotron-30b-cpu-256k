@@ -35,6 +35,9 @@ if [[ -z "${GATEWAY_HOST:-}" ]] && [[ -f "$GATEWAY_HOST_FILE" ]]; then
     GATEWAY_HOST="$(head -n 1 "$GATEWAY_HOST_FILE" 2>/dev/null | tr -d '[:space:]')"
 fi
 GATEWAY_HOST="${GATEWAY_HOST:-127.0.0.1}"
+DSV4_ABLIT_MODEL="${WORKSPACE_DIR}/models/dsv4-abliterated-fractal/DeepSeek-V4-Flash-0731-Abliterated-Fractal-00001-of-00003.gguf"
+DSV4_VQ3_MODEL="${WORKSPACE_DIR}/models/dsv4-vq3/DeepSeek-V4-Flash-0731-VQ3-00001-of-00003.gguf"
+DSV4_FRACTAL_MODEL="${WORKSPACE_DIR}/models/dsv4-fractal/DeepSeek-V4-Flash-0731-Fractal-00001-of-00003.gguf"
 VQ3_MODEL="${WORKSPACE_DIR}/models/NVIDIA-Nemotron-3.5-30B-A3B-VQ3-64.gguf"
 FRACTAL_MODEL="${WORKSPACE_DIR}/models/NVIDIA-Nemotron-3.5-30B-A3B-Fractal-64.gguf"
 Q4_MODEL="${WORKSPACE_DIR}/models/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-Q4_0.gguf"
@@ -47,6 +50,14 @@ resolve_default_model() {
     fi
     if [[ -n "$saved" && -f "$saved" ]]; then
         printf '%s\n' "$saved"
+    elif [[ -f "$DSV4_ABLIT_MODEL" ]]; then
+        printf '%s\n' "$DSV4_ABLIT_MODEL"
+    elif [[ -f "/opt/models/deepseek-v4/lcc/DeepSeek-V4-Flash-0731-Abliterated-Fractal-00001-of-00003.gguf" ]]; then
+        printf '%s\n' "/opt/models/deepseek-v4/lcc/DeepSeek-V4-Flash-0731-Abliterated-Fractal-00001-of-00003.gguf"
+    elif [[ -f "$DSV4_VQ3_MODEL" ]]; then
+        printf '%s\n' "$DSV4_VQ3_MODEL"
+    elif [[ -f "$DSV4_FRACTAL_MODEL" ]]; then
+        printf '%s\n' "$DSV4_FRACTAL_MODEL"
     elif [[ -f "$VQ3_MODEL" ]]; then
         printf '%s\n' "$VQ3_MODEL"
     elif [[ -f "$FRACTAL_MODEL" ]]; then
@@ -161,7 +172,7 @@ cmd_start() {
 
     if [[ ! -f "$model" ]]; then
         echo -e "${YELLOW}[!] Model file not found at: ${model}${RESET}"
-        echo -e "    • Run ${BOLD}./modchip setup${RESET} to build & download Nemotron-3.5-30B-A3B automatically,"
+        echo -e "    • Run ${BOLD}./modchip setup${RESET} to install the engine & choose your GGUF model (DeepSeek-V4 284B or Nemotron-30B),"
         echo -e "    • Or bring your own GGUF: ${BOLD}./modchip start /path/to/your_model.gguf${RESET}"
         exit 1
     fi
@@ -445,7 +456,10 @@ cmd_claude() {
     local raw_model model_id model_banner
     raw_model="$(curl -sf --max-time 1 "${ep}/v1/models" 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); m=(d.get("data") or d.get("models") or [{}])[0]; print(m.get("id") or m.get("name") or "")' 2>/dev/null || true)"
     if [[ "$raw_model" == *[Dd]eep[Ss]eek* ]]; then
-        if [[ "$raw_model" == *[Vv][Qq]3* ]]; then
+        if [[ "$raw_model" == *[Aa]bliterated* ]]; then
+            model_id="DeepSeek-V4-Flash-0731-Abliterated-Fractal-284B"
+            model_banner="DeepSeek-V4-Flash-0731-Abliterated-Fractal (284B-A13B MoE · Single-Pass Q6_K + Fractal-64 · 64GB CPU)"
+        elif [[ "$raw_model" == *[Vv][Qq]3* ]]; then
             model_id="DeepSeek-V4-Flash-0731-VQ3-284B"
             model_banner="DeepSeek-V4-Flash-0731-VQ3 (284B-A13B MoE · VQ3-64 + Fractal-64 · 64GB CPU)"
         else
@@ -464,8 +478,8 @@ cmd_claude() {
         model_id="$(basename "$raw_model" .gguf | sed -E 's/-00001-of-[0-9]+$//')"
         model_banner="$model_id"
     else
-        model_id="DeepSeek-V4-Flash-0731-VQ3-284B"
-        model_banner="DeepSeek-V4-Flash-0731 (284B-A13B MoE · 64GB CPU)"
+        model_id="DeepSeek-V4-Flash-0731-Abliterated-Fractal-284B"
+        model_banner="DeepSeek-V4-Flash-0731-Abliterated-Fractal (284B-A13B MoE · 64GB CPU)"
     fi
 
     local extra_flags=(
