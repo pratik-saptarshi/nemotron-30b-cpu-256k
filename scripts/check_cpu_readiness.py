@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-check_cpu_readiness.py — Hardware Compatibility & Performance Estimator
-for Nemotron-3.5-30B-A3B (256K Context, CPU-Only + RouteCrack Speculative Engine)
+check_cpu_readiness.py — Hardware Compatibility, OS Headroom & Performance Estimator
+for DeepSeek-V4-Flash 284B (64 GB RAM Tier) & Nemotron-3.5-30B-A3B (16–32 GB RAM Tier)
 
 Zero-dependency Python 3 script (standard library only).
-Inspects CPU topology, SIMD/AMX ISA extensions, L3 cache capacity, RAM,
+Inspects CPU topology, SIMD/AMX ISA extensions, L3 cache capacity, total & free RAM,
 Transparent HugePages (THP), runs a fast multi-core DRAM bandwidth micro-benchmark,
-and estimates real-world latency (TTFT) and throughput (tok/s) for interactive
-autonomous coding agents (e.g. Claude Code).
+and estimates latency (TTFT), throughput (tok/s), safe context window (-c 32768 vs
+-c 262144), and prebuilt binary variant (-avx512 vs -avx2).
 
 Usage:
-    python3 scripts/check_cpu_readiness.py [--json] [--no-bench]
+    python3 scripts/check_cpu_readiness.py [--model {both,30b,284b}] [--json] [--no-bench]
 
 Windows (PowerShell) — run from a file so the benchmark workers can be spawned:
     curl.exe -sLo check_cpu_readiness.py https://raw.githubusercontent.com/synchopate/llama-modchip/main/scripts/check_cpu_readiness.py
@@ -895,19 +895,26 @@ def evaluate_readiness(cpu, mem, measured_bw_gbs):
     # Each 256K full-attention slot = ~0.43 GB (or 0.14 GB with SWA=4096)
     ram_total = mem["total_gb"]
     ram_avail = mem["available_gb"]
-    can_fit_model_in_ram = ram_total >= 22.0
+    can_fit_model_in_ram = ram_total >= 15.2
+    can_fit_q4_in_ram = ram_total >= 22.0
     if ram_total >= 28.0:
         free_for_slots = max(1.0, ram_total - 20.0)
         max_256k_slots = max(1, min(int(free_for_slots / 1.2), cpu["physical_cores"] // 4 or 1))
-    elif ram_total >= 22.0:
+    elif ram_total >= 18.0:
         max_256k_slots = 1
     else:
         max_256k_slots = 0
 
     # Overall verdict
     if not can_fit_model_in_ram:
-        tier = "TIER D — INSUFFICIENT RAM (< 22 GB Total RAM)"
-        summary = "Your system has less than 22 GB of RAM. The 17 GB Q4_0 weights + KV cache will swap to disk."
+        tier = "TIER D — INSUFFICIENT RAM (< 16 GB Physical RAM)"
+        summary = "Your system has less than 15.2 GiB total RAM. Even the 13.30 GiB VQ3-64 checkpoint will swap to disk."
+    elif not can_fit_q4_in_ram:
+        tier = "TIER B+ — 16 GB COMPACT HOST (USE VQ3-64 13.30 GiB AT -c 32768)"
+        summary = (
+            "16 GB RAM class detected: Q4_0 (17.59 GiB) would swap, so use NVIDIA-Nemotron-3.5-30B-A3B-VQ3-64.gguf "
+            "(13.30 GiB) with -c 32768 and close heavy desktop apps."
+        )
     elif tool_json_tps >= 45.0:
         if cpu.get("os") == "Darwin" and cpu.get("arch") == "arm64":
             tier = "TIER S — APPLE SILICON HIGH-BANDWIDTH UNIFIED MEMORY (METAL + NEON)"
@@ -928,7 +935,18 @@ def evaluate_readiness(cpu, mem, measured_bw_gbs):
     return {
         "simd_tier": simd_tier,
         "has_avx512_vnni": has_avx512_vnni,
+        "has_avx512_vbmi": has_avx512_vbmi,
+        "has_avx2": has_avx2,
         "has_amx": has_amx,
+        "prebuilt_binary": (
+            "llama-server-modchip-linux-x86_64-avx512"
+            if (cpu.get("os") == "Linux" and cpu.get("arch") == "x86_64" and has_avx512f and has_avx512_vbmi)
+            else (
+                "llama-server-modchip-linux-x86_64-avx2"
+                if (cpu.get("os") == "Linux" and cpu.get("arch") == "x86_64")
+                else "build-from-source (./modchip setup)"
+            )
+        ),
         "l3_status": l3_status,
         "thp_ok": thp_ok,
         "thp_optimal": thp_optimal,
@@ -951,12 +969,124 @@ def evaluate_readiness(cpu, mem, measured_bw_gbs):
     }
 
 
+def evaluate_dsv4_284b_readiness(cpu, mem, rep_30b):
+    """Evaluate 284.33B DeepSeek-V4-Flash-0731 (56.40–56.93 GiB 3-shard GGUF) RAM headroom & speed."""
+    ram_total = float(mem.get("total_gb", 0.0))
+    ram_avail = float(mem.get("available_gb", 0.0))
+    eff_bw = float(rep_30b.get("measured_bw_gbs", 38.0))
+    bw_ratio = eff_bw / 50.5
+
+    flags = cpu["flags"]
+    has_vbmi = "avx512_vbmi" in flags or "avx512vbmi" in flags
+    has_avx512 = "avx512f" in flags
+    has_avx2 = "avx2" in flags
+    is_mac_arm = cpu.get("os") == "Darwin" and cpu.get("arch") == "arm64"
+
+    if is_mac_arm:
+        isa_mult_dec = 1.00
+        isa_mult_pp = 1.35
+    elif has_avx512 and has_vbmi:
+        isa_mult_dec = 1.00
+        isa_mult_pp = 1.00
+    elif has_avx512:
+        isa_mult_dec = 0.90
+        isa_mult_pp = 0.85
+    elif has_avx2:
+        isa_mult_dec = 0.82
+        isa_mult_pp = 0.58
+    else:
+        isa_mult_dec = 0.45
+        isa_mult_pp = 0.35
+
+    core_ratio_pp = min(max(cpu["physical_cores"], 1) / 16.0, 4.0) ** 0.82
+    core_mlp_dec = min(1.0, 0.68 + 0.02 * max(cpu["physical_cores"], 1))
+
+    if is_mac_arm:
+        # Calibrated against verified M5 Max 64GB (286.5 GB/s -> 169.4 pp512, 20.7-27.0 tg)
+        raw_n1_tps = min(32.0, 9.05 * (eff_bw / 95.0))
+        cold_pp_tps = min(220.0, 41.1 * (eff_bw / 68.0))
+    else:
+        raw_n1_tps = max(1.2, min(42.0, 9.05 * bw_ratio * core_mlp_dec * isa_mult_dec))
+        cold_pp_tps = max(3.0, min(260.0, 41.11 * core_ratio_pp * min(max(bw_ratio, 0.5), 2.5) * isa_mult_pp))
+    spec_burst_lo = round(raw_n1_tps * 1.32, 1)
+    spec_burst_hi = round(raw_n1_tps * 2.45, 1)
+
+    # Usable RAM on a physical 64 GB DIMM kit is typically 61.8–62.8 GiB after BIOS/iGPU/kernel reservation.
+    # Weights on disk: 56.40 GiB (VQ3) to 56.57–56.93 GiB (Fractal).
+    # Peak VmRSS: ~57.8–58.4 GiB at -c 32768, ~58.6–59.3 GiB at -c 262144.
+    headroom_32k_gib = round(ram_avail - 58.3, 2)
+    headroom_256k_gib = round(ram_avail - 59.1, 2)
+
+    if ram_total >= 90.0:
+        can_fit_284b = True
+        rec_ctx = 262144
+        status = "READY (96 GB+ Host — Full 256K Context with Ample OS Headroom)"
+        note = (
+            f"{ram_total:.1f} GiB total / {ram_avail:.1f} GiB free comfortably holds 56.4–56.9 GiB weights "
+            f"+ 256K MLA KV cache (-c 262144, ~58.8 GiB VmRSS) with zero swap."
+        )
+    elif ram_total >= 59.5:
+        can_fit_284b = True
+        if ram_avail >= 60.0:
+            rec_ctx = 262144
+            status = "READY ON 64 GB HOST (Headless / High Free RAM — -c 32768 Default, -c 262144 Supported)"
+            note = (
+                f"{ram_avail:.1f} GiB currently available (~{headroom_32k_gib:+.1f} GiB OS margin at -c 32768, "
+                f"~{headroom_256k_gib:+.1f} GiB at -c 262144). Use -c 32768 on desktops; use -c 262144 on headless nodes."
+            )
+        elif ram_avail >= 58.0:
+            rec_ctx = 32768
+            status = "READY WITH 64 GB DESKTOP HEADROOM GUARD (Use -c 32768)"
+            note = (
+                f"{ram_avail:.1f} GiB available leaves ~{max(0.1, headroom_32k_gib):.1f} GiB OS headroom above ~58.3 GiB VmRSS. "
+                "Keep -c 32768 (do NOT pass -c 262144 while GUI/browsers are open, to avoid Linux OOM killer)."
+            )
+        else:
+            rec_ctx = 32768
+            status = "64 GB HOST DETECTED — FREE RAM TOO LOW RIGHT NOW (< 58.0 GiB Available)"
+            note = (
+                f"Hardware has {ram_total:.1f} GiB total RAM, but only {ram_avail:.1f} GiB is currently free/reclaimable. "
+                "Close browsers/desktop apps (or run headless) to free >= 58.8 GiB before loading the 56.4 GiB 284B model."
+            )
+    else:
+        can_fit_284b = False
+        rec_ctx = 0
+        status = "INSUFFICIENT RAM FOR 284B (< 64 GB Physical RAM — Use Nemotron-30B Instead)"
+        note = (
+            f"{ram_total:.1f} GiB total RAM cannot hold the 56.40 GiB 284B checkpoint in memory without severe SSD swap thrashing."
+        )
+
+    return {
+        "can_fit_284b_in_ram": can_fit_284b,
+        "status": status,
+        "recommended_ctx": rec_ctx,
+        "est_vmrss_32k_gib": 58.3,
+        "est_vmrss_256k_gib": 59.1,
+        "os_headroom_at_32k_gib": headroom_32k_gib,
+        "os_headroom_at_256k_gib": headroom_256k_gib,
+        "estimates": {
+            "cold_prefill_pp128_tok_s": round(cold_pp_tps, 1),
+            "raw_decode_n1_tok_s": round(raw_n1_tps, 2),
+            "speculative_burst_tok_s_range": [spec_burst_lo, spec_burst_hi],
+        },
+        "note": note,
+    }
+
+
 # ============================================================================
 # 4. CLI Report Formatter
 # ============================================================================
 
 def main():
-    parser = argparse.ArgumentParser(description="Check CPU readiness for Nemotron-30B-A3B 256K + RouteCrack")
+    parser = argparse.ArgumentParser(
+        description="Check CPU readiness & RAM headroom for DeepSeek-V4-Flash 284B (64GB) & Nemotron-30B-A3B"
+    )
+    parser.add_argument(
+        "--model",
+        choices=("both", "30b", "284b"),
+        default="both",
+        help="Target model tier to evaluate (default: both)",
+    )
     parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     parser.add_argument("--no-bench", action="store_true", help="Skip the 0.6s DRAM bandwidth micro-benchmark")
     args = parser.parse_args()
@@ -974,18 +1104,20 @@ def main():
 
     if not args.json:
         print("=" * 78)
-        print(" NEMOTRON-3.5-30B-A3B (256K CPU + ROUTECRACK) — HARDWARE READINESS AUDIT")
+        print(" LLAMA-MODCHIP — CPU, SIMD ISA & 64GB/32GB RAM HEADROOM READINESS AUDIT")
         print("=" * 78)
         print(" Running multi-core DRAM streaming micro-benchmark (~0.6s)..." if not args.no_bench else "")
 
     bw_gbs = 0.0 if args.no_bench else measure_dram_bandwidth_gbs(cpu["physical_cores"], mem["total_gb"])
     rep = evaluate_readiness(cpu, mem, bw_gbs)
+    rep_284b = evaluate_dsv4_284b_readiness(cpu, mem, rep)
 
     if args.json:
         out = {
             "cpu": {k: (list(v) if isinstance(v, set) else v) for k, v in cpu.items()},
             "memory": mem,
             "assessment": rep,
+            "assessment_284b": rep_284b,
         }
         print(json.dumps(out, indent=2))
         return
@@ -1003,6 +1135,8 @@ def main():
     else:
         print(f"  • L3 Cache (LLC)     : {cpu['l3_total_mb']:.1f} MiB ({cpu['l3_instances']} instance(s)) -> {rep['l3_status']}")
     print(f"  • SIMD / Matrix ISA  : {rep['simd_tier']}")
+    if cpu.get("os") == "Linux" and cpu.get("arch") == "x86_64":
+        print(f"  • Prebuilt x86_64 Bin: {rep['prebuilt_binary']}")
     shm_note = f", /dev/shm: {mem['shm_total_gb']:.1f} GiB" if cpu.get("os") == "Linux" else ""
     print(f"  • System RAM         : {mem['total_gb']:.1f} GiB total ({mem['available_gb']:.1f} GiB available{shm_note})")
     if cpu.get("os") == "Darwin":
@@ -1019,19 +1153,32 @@ def main():
     if bw_gbs > 0:
         print(f"  • Sustained DRAM BW  : {rep['measured_bw_gbs']:.1f} GB/s (multi-core user-space streaming)")
 
-    ctx_note = "CPU-only NEON baseline; Metal GPU offload adds ~1.3-2.0x prefill" if (cpu.get("os") == "Darwin" and cpu.get("arch") == "arm64") else "Q4_0, 22K–35K Active Agent Context"
-    print(f"\n [2] ESTIMATED PERFORMANCE ON THIS MACHINE ({ctx_note})")
-    print(f"  • Slot 0 Disk Snapshot Restore (22.2K tok) : ~{e['slot_restore_ms']:.1f} ms")
-    print(f"  • Warm Interactive TTFT (40-tool prefix)   : ~{e['warm_ttft_sec']:.2f} s")
-    if cpu.get("is_hybrid"):
-        print(f"  • Cold Prompt Prefill Throughput           : ~{e['prefill_static_tok_s']:.0f} tok/s (static bound) .. ~{e['prefill_dynamic_tok_s']:.0f} tok/s (dynamic chunks)")
-    else:
-        print(f"  • Cold Prompt Prefill Throughput           : ~{e['prefill_tok_s']:.0f} tok/s")
-    print(f"  • Decode — Base Physical Floor (no spec)   : ~{e['base_floor_tok_s']:.1f} tok/s")
-    print(f"  • Decode — Technical Prose + New Code      : ~{e['prose_and_code_tok_s']:.1f} tok/s  (Q4_0; Fractal-64 varies ~-7% to +30%)")
-    print(f"  • Decode — Refactor / Tool-Call (~67% acc) : ~{e['tool_call_json_tok_s']:.1f} tok/s")
-    print(f"  • Decode — High-Hit Boilerplate Burst      : ~{e['repetitive_code_tok_s']:.1f} tok/s  (90%+ PVS hit)")
-    print(f"  • Max Concurrent 256K Agent Workers        : {rep['max_256k_slots']} instance(s)")
+    if args.model in ("both", "30b"):
+        ctx_note = "CPU-only NEON baseline; Metal GPU offload adds ~1.3-2.0x prefill" if (cpu.get("os") == "Darwin" and cpu.get("arch") == "arm64") else "Q4_0, 22K–35K Active Agent Context"
+        print(f"\n [2A] NEMOTRON-3.5-30B-A3B (13.3–17.6 GiB GGUF · 16–32 GB TIER) — ({ctx_note})")
+        print(f"  • Slot 0 Disk Snapshot Restore (22.2K tok) : ~{e['slot_restore_ms']:.1f} ms")
+        print(f"  • Warm Interactive TTFT (40-tool prefix)   : ~{e['warm_ttft_sec']:.2f} s")
+        if cpu.get("is_hybrid"):
+            print(f"  • Cold Prompt Prefill Throughput           : ~{e['prefill_static_tok_s']:.0f} tok/s (static bound) .. ~{e['prefill_dynamic_tok_s']:.0f} tok/s (dynamic chunks)")
+        else:
+            print(f"  • Cold Prompt Prefill Throughput           : ~{e['prefill_tok_s']:.0f} tok/s")
+        print(f"  • Decode — Base Physical Floor (N=1 raw)   : ~{e['base_floor_tok_s']:.1f} tok/s")
+        print(f"  • Decode — Technical Prose + New Code      : ~{e['prose_and_code_tok_s']:.1f} tok/s  (Q4_0; Fractal-64 varies ~-7% to +30%)")
+        print(f"  • Decode — Refactor / Tool-Call (~67% acc) : ~{e['tool_call_json_tok_s']:.1f} tok/s")
+        print(f"  • Decode — High-Hit Boilerplate Burst      : ~{e['repetitive_code_tok_s']:.1f} tok/s  (90%+ PVS hit)")
+        print(f"  • Max Concurrent 256K Agent Workers        : {rep['max_256k_slots']} instance(s)")
+
+    if args.model in ("both", "284b"):
+        e284 = rep_284b["estimates"]
+        sb_lo, sb_hi = e284["speculative_burst_tok_s_range"]
+        print(f"\n [2B] DEEPSEEK-V4-FLASH-0731 284B (56.4–56.9 GiB GGUF · 64 GB TIER)")
+        print(f"  • 64 GB Tier Verdict                       : {rep_284b['status']}")
+        print(f"  • OS RAM Headroom Check                    : {rep_284b['note']}")
+        if rep_284b["can_fit_284b_in_ram"]:
+            print(f"  • Recommended Context Flag                 : -c {rep_284b['recommended_ctx']} (-c 32768 safe desktop default; -c 262144 headless server)")
+            print(f"  • Cold Prompt Prefill (pp128)              : ~{e284['cold_prefill_pp128_tok_s']:.1f} tok/s")
+            print(f"  • Raw Pure Decode (N=1, unpruned Top-6)    : ~{e284['raw_decode_n1_tok_s']:.2f} tok/s")
+            print(f"  • Speculative / Agentic Burst (PVS)        : ~{sb_lo:.1f}–{sb_hi:.1f} tok/s")
 
     print(f"\n [3] VERDICT & RECOMMENDED TUNING")
     print(f"  ► {rep['tier']}")

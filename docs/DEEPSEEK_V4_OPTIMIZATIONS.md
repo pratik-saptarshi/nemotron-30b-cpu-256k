@@ -21,7 +21,7 @@ Measured via `LLAMA_PROFILE_OPS` inside `ggml_graph_compute_thread` ([`patches/d
 
 ### A. Single-Token Decode (`N=1`, `4,551` Graph Nodes) — Evolution Across Optimizations
 
-| Operator / Subsystem (`43` Layers) | Tensor Types | Calls / Tok | `v2.3.0` Initial (`169.3 ms`) | Pre-Micro-Opt (`121.9 ms`) | **`v2.4.0` Lossless (`110.3 ms`)** | **`v2.4.0` `Top-4 L2` (`98.8 ms`)** | What Was Optimized |
+| Operator / Subsystem (`43` Layers) | Tensor Types | Calls / Tok | `v2.3.0` Initial (`169.3 ms`) | Pre-Micro-Opt (`121.9 ms`) | **`v2.5.0` Unpruned `Top-6` (`110.3 ms`)** | **`v2.5.0` `Top-4 L2` (`98.8 ms`)** | What Was Optimized |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
 | **1. MLA & Shared Expert `MUL_MAT`** (`wq_b`, `wo_a`, `wo_b`, `wkv`, `shexp`) | `q2_0` / `vq3_0` | `512` | `78.40 ms` | `62.20 ms` | **`61.81 ms`** | **`61.81 ms`** | AVX-512 `vprorvq` / `vpermi2b`, 3D L1D tiling (`wo_a`), 8-slot `Q8_0` cache, barrier elision (`nr0 < 4096`) |
 | **2. Routed MoE `MUL_MAT_ID`** (`up_exps`, `gate_exps`, `down_exps` — Bulk) | `iq1_s` (`SwiGLU-H2`) | `87` | `25.10 ms` | `22.79 ms` | **`22.27 ms`** | **`15.17 ms`** *(`-33.4%`)* | 8-slot `Q8_K` cache, `MUL_MAT_ID` row-group reuse, `ones256` AVX2 hoist, $L_2$-quadrature tail pruning |
@@ -30,7 +30,7 @@ Measured via `LLAMA_PROFILE_OPS` inside `ggml_graph_compute_thread` ([`patches/d
 | **5. Output Head (`lm_head`) + Router Gates** | `q4_K` / `q6_K` / `f32` | `298` | `11.20 ms` | `9.29 ms` | **`9.05 ms`** | **`9.05 ms`** | `_MM_HINT_NTA` non-temporal prefetch in `q4_K` & `q6_K` |
 | **6. Fast Walsh-Hadamard (`HADAMARD`), `RMS_NORM`, `HC_PRE/POST`, `FLASH_ATTN`** | `f32` / `f16` | `1,810` | `19.60 ms` | `10.12 ms` | **`9.85 ms`** | **`8.90 ms`** | 9-stage in-register AVX2 FWHT (`ops.cpp`), AVX2 `HC_PRE/POST`, fused `RMS_NORM+MUL`, MLA 8-step lookahead |
 | **7. Graph Rebuild & `CSA/LID` Compressor Overhead** | Graph / C++ | `1` | `28.40 ms` | `11.67 ms` | **`1.54 ms`** | **`0.00 ms`** | Zero-rebuild dynamic `CSA/LID` skip (`flags |= 0x100`, `ggml_dsv4_skip_csa_comp`) |
-| **TOTAL SINGLE-TOKEN LATENCY (`ms/tok` & `tok/s`)** | **All (`3.20 GB` -> `2.85 GB`)** | **`4,551`** | **`169.30 ms` (`5.91 tok/s`)** | **`121.92 ms` (`8.20 tok/s`)** | **`110.33 ms` (`9.06 tok/s`)** | **`98.84 ms` (`10.12 tok/s`)** | **`+53.3%` Lossless / `+71.2%` with `Top-4 L2` (`11.5–14.7 tok/s` w/ `Stockfish-PVS`)** |
+| **TOTAL SINGLE-TOKEN LATENCY (`ms/tok` & `tok/s`)** | **All (`3.20 GB` -> `2.85 GB`)** | **`4,551`** | **`169.30 ms` (`5.91 tok/s`)** | **`121.92 ms` (`8.20 tok/s`)** | **`110.33 ms` (`9.06 tok/s`)** | **`98.84 ms` (`10.12 tok/s`)** | **`+53.3%` Unpruned `Top-6` / `+71.2%` with `Top-4 L2` (`11.5–25.3 tok/s` w/ `Stockfish-PVS`)** |
 
 ### B. Batched Prompt Prefill (`pp512`, `n_tokens = 512`, `5,375` Graph Nodes)
 
@@ -73,7 +73,7 @@ $$\mathbf{y}_{\text{FFN}}(\mathbf{x}) = \mathbf{e}_{\text{shared}}(\mathbf{x}) +
 
 | Runtime Configuration (`il = 0..2` always `6/6`) | Pure Decode (`tok/s`) | Latency (`ms/tok`) | **Prob Cosine Similarity** | **Top-10 $D_{\text{KL}}$ (nats)** | **Local Top-10 $\Delta$PPL** | **Top-1 / Top-3 Token Match** |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **1. `Top-6` Lossless (Default)** | **`9.06 tok/s`** | **`110.33 ms`** | **`1.00000`** | **`0.0000`** | **`0.00%` (Bit-Exact)** | **`100.0% / 100.0%`** |
+| **1. `Top-6` Unpruned (Default)** | **`9.06 tok/s`** | **`110.33 ms`** | **`1.00000`** | **`0.0000`** | **`0.00%` (Ref)** | **`100.0% / 100.0%`** |
 | **2. Adaptive Tail (`min_w=0.11`, $L_2$)** | **`9.52 tok/s`** | **`105.02 ms`** | **`0.99634`** | **`0.0047`** | **`+0.47%`** | **`95.8% / 100.0%`** |
 | **3. `Top-5` Sweet-Spot (`il >= 3`, $L_2$)** | **`9.68 tok/s`** | **`103.27 ms`** | **`0.99714`** | **`0.0042`** | **`+0.42%`** | **`95.8% / 100.0%`** |
 | **4. Hybrid `6/4/6` (`il = 16..39` at 4, $L_2$)** | **`9.83 tok/s`** | **`101.74 ms`** | **`0.99660`** | **`0.0184`** | **`+1.86%`** | **`95.8% / 100.0%`** |
@@ -89,7 +89,7 @@ $$\mathbf{y}_{\text{FFN}}(\mathbf{x}) = \mathbf{e}_{\text{shared}}(\mathbf{x}) +
 python3 -c 'import struct; open("/tmp/dsv4_moe_cfg.bin","r+b").write(struct.pack("<8i", 5, 5, 0, 3, 43, 1, 0, 0))'   # Top-5 L2 (9.87 tok/s, +0.42% PPL)
 python3 -c 'import struct; open("/tmp/dsv4_moe_cfg.bin","r+b").write(struct.pack("<8i", 5, 5, 0, 3, 43, 1, 80, 80))' # Top-5 L2 + Gate-First SwiGLU 80/128 (10.15 tok/s)
 python3 -c 'import struct; open("/tmp/dsv4_moe_cfg.bin","r+b").write(struct.pack("<8i", 4, 4, 0, 3, 43, 1, 80, 80))' # Top-4 L2 + Gate-First SwiGLU 80/128 (10.51 tok/s)
-python3 -c 'import struct; open("/tmp/dsv4_moe_cfg.bin","r+b").write(struct.pack("<8i", 6, 6, 0, 3, 43, 1, 0, 0))'   # Top-6 Lossless (default, 0.00% PPL)
+python3 -c 'import struct; open("/tmp/dsv4_moe_cfg.bin","r+b").write(struct.pack("<8i", 6, 6, 0, 3, 43, 1, 0, 0))'   # Top-6 Unpruned (default, 0.00% routing KLD)
 ```
 
 ```powershell

@@ -5,7 +5,7 @@
   - `NVIDIA-Nemotron-3.5-Lightning-30B-A3B` (`52` blocks: `23` Mamba-2 SSM + `23` Sparse MoE + `6` GQA Attention)
   - `DeepSeek-V4-Flash-0731` (`284.33B` total / `13.17B` active, `43` MLA + `256+1s` MoE layers, `Top-6` routing)
 - **Testbed:** AMD Ryzen 9 9955HX (`16` Zen 5 cores, `64 MB` dual-CCD L3 cache), DDR5-5600, Linux 6.8, Transparent HugePages (`madvise`).
-- **Evaluation Harness:** [`benchmarks/eval_quality_and_tools.py`](eval_quality_and_tools.py) (`30` pts Agentic Tool-Calling, `30` pts Executable Python Code Gen, `20` pts Long-Context Needle & Arithmetic, `20` pts Throughput & Memory Telemetry).
+- **Evaluation Harness:** [`benchmarks/eval_quality_and_tools.py`](eval_quality_and_tools.py) (`30` pts Agentic Tool-Calling, `30` pts Executable Python Code Gen, `20` pts Long-Context Needle & Arithmetic, `20` pts Throughput & Memory Telemetry) + [`benchmarks/eval_perplexity_and_kld.py`](eval_perplexity_and_kld.py) (Continuous `llama-perplexity` & Top-64 Logit KL-Divergence).
 
 ---
 
@@ -68,7 +68,32 @@ Measured via `quantize_row_*_ref` $\to$ `dequantize_row_*` on `NVIDIA-Nemotron-3
 
 ---
 
-## 3. Reproducibility Commands
+## 3. Continuous End-to-End Perplexity (`PPL`) & Logit KL-Divergence (`KLD`)
+
+Discrete functional gates (`80/80` across JSON tool-calling, unit-tested code generation, and long-context needle/math) verify structural non-collapse, but saturate when multiple quantization profiles pass every assertion—especially on `DeepSeek-V4-Flash 284B` where routed MoE experts sit at `SwiGLU-H2` (`IQ1_S` / `IQ1_M` / `IQ2_XXS`, `1.56–2.06 bpw`) while MLA attention and shared experts sit in `Fractal-64` (`3.75 bpw`), `LUT-VQ3-64` (`3.00 bpw`), or `Q5_K`/`Q6_K`.
+
+To measure continuous end-to-end model fidelity across **all** layers (including `IQ1_S` routed experts, `Fractal-64` MLA attention, and `LUT-VQ3-64` / `Q6_K` shared experts), [`benchmarks/eval_perplexity_and_kld.py`](eval_perplexity_and_kld.py) provides two non-saturating metrics:
+1. **Teacher-Forced `llama-perplexity` (`PPL ± σ`)**: Evaluates exact cross-entropy over `8 × 512 = 4,096` tokens (`--ctx-size 512 --chunks 8`).
+2. **Two-Pass Single-Host Top-64 Logit KL-Divergence (`nats/tok`)**: Collects greedy completion distributions (`n_probs = 64`) across 12 multi-domain probes (C++20 atomics, Python algorithms, SQL/HTTP protocols, number theory, and MLA/MoE architecture derivations) sequentially so two `56+ GiB` checkpoints can be compared on a single `64 GB` host without loading both simultaneously.
+
+### A. `DeepSeek-V4-Flash-0731` (`284.33B` Total / `13.17B` Active) — Continuous `PPL` & Extended `Hard-60` Suite
+*Measured on 16-Core AMD Zen 5 (`64 GB` DDR5-5600, `8 × 512 = 4,096` multi-domain code/math/systems tokens + `80`-pt Gate + `60`-pt Hard Algorithmic/Math Suite):*
+
+| `DeepSeek-V4-Flash 284B` Checkpoint (`64 GB` Host) | Disk Size | Peak `VmRSS` | **Continuous `PPL ± σ` (`4,096` tok)** | Functional Gate (`80` pts) | Extended `Hard-60` Suite (`60` pts) | Notes |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| **`Fractal-64` (`56.57 GiB` Shipped)** | `56.57 GiB` | `58.20 GiB` | **`1.8284 ± 0.07038`** | `64.0 / 80.0` | `20.0 / 60.0` | `100%` MLA in `Fractal-64`; `shexp` in `Q5_K`/`Q6_K` |
+| **`LUT-VQ3-64` (`56.40 GiB` Shipped Hybrid)** | `56.40 GiB` | `58.31 GiB` | **`1.8258 ± 0.06978`** *(`-0.14%`)* | `66.0 / 80.0` | `40.0 / 60.0` | `68` interior `shexp` in `VQ3_0`; MLA in `Fractal-64` |
+| **Single-Pass `Abliterated-VQ3` (`BF16/FP8 -> VQ3`)** | `56.40 GiB` | `58.13 GiB` | **`1.7438 ± 0.06360`** *(`-4.63%`)* | `60.0 / 80.0` | `40.0 / 60.0` | Direct `FP8 -> VQ3_0` eliminates `Q5_K -> VQ3` double-quantization |
+| **Single-Pass `Abliterated-Fractal-MaxQ` (`FP8 -> Q6_K`)** | `56.93 GiB` | `59.13 GiB` | **`1.7597 ± 0.06534`** *(`-3.76%`)* | **`70.0 / 80.0`** *(`30/30` Tools)* | **`50.0 / 60.0`** | Direct `BF16/FP8 -> Q6_K` on all `130` dense bottlenecks |
+
+### B. `NVIDIA-Nemotron-3.5-30B-A3B` — Continuous `WikiText-2` `PPL` & End-to-End Logit `KLD`
+*Community-reproduced independent audit (`@khairullinr`, [Issue #16](https://github.com/synchopate/llama-modchip/issues/16)) + Zen 5 harness verification:*
+- **`Baseline-Q4_0` (`17.59 GiB`, `4.50 bpw` Reference)**: `WikiText-2` `PPL = 2.086 ± 0.037` (`0.0000 nats/tok` reference).
+- **`Fractal-64` (`14.36 GiB`, `3.75 bpw` Direct from `BF16`)**: End-to-end Logit `KLD = 0.0566 nats/tok` (`+5.82%` equivalent PPL delta vs. `Q4_0`), **`94.35%` Top-1 greedy token agreement** across code generation, `100.0 / 100.0` Functional Gate.
+
+---
+
+## 4. Reproducibility Commands
 
 ```bash
 # 1. Run Python pack/unpack and AVX-512 golden-vector unit tests
@@ -82,7 +107,14 @@ gcc -O3 -march=native -mavx512f -mavx512bw -mavx512vbmi -mf16c -mbmi2 \
 python3 scripts/build_nemotron_vq3.py --fractal-gguf <Fractal-64.gguf> --bf16-gguf <BF16.gguf> --output NVIDIA-Nemotron-3.5-30B-A3B-VQ3-64.gguf
 python3 scripts/build_dsv4_vq3.py --input-dir <Fractal-Dir> --output-dir ./dsv4-vq3
 
-# 4. Run the 100-Point Quality & Tool-Calling Gate against a live endpoint
+# 4. Run the 100-Point Quality Gate + Continuous Perplexity & 2-Pass Logit KLD
+python3 benchmarks/eval_perplexity_and_kld.py \
+  --llama-perplexity ./workspace/bin/llama-perplexity \
+  --model ./dsv4-vq3/DeepSeek-V4-Flash-0731-VQ3-00001-of-00003.gguf \
+  --url http://127.0.0.1:8787 \
+  --ref-logits benchmarks/results/fractal_ref_logits.json \
+  --save-json benchmarks/results/cont_dsv4_vq3_64.json
+
 python3 benchmarks/eval_quality_and_tools.py \
   --url http://127.0.0.1:8787 \
   --label Nemotron-VQ3-64-13.30GiB \

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-llama-modchip v2.1 — Zero-Dependency Interactive Terminal Chat & Shareable Benchmark Suite
+llama-modchip v2.5.0 — Zero-Dependency Interactive Terminal Chat & Shareable Benchmark Suite
 Connects to local Gateway (8787) or llama-server (8789/8080/8001), streams tokens live,
 and reports exact Prefill tok/s, Decode tok/s, TTFT, and Stockfish-PVS (M=7) draft acceptance.
 """
@@ -723,10 +723,29 @@ def run_benchmark_suite(base_url: str) -> None:
         ).strip()
     except Exception:
         pass
-    ver_tag = f"v2.4 ({git_rev})" if git_rev else "v2.4"
-    banner_text = f"🚀 LLAMA-MODCHIP {ver_tag} BENCHMARK SCORECARD (Share on GitHub / X!)"
+    ver_tag = f"v2.5.0 ({git_rev})" if git_rev else "v2.5.0"
+    banner_text = f"LLAMA-MODCHIP {ver_tag} BENCHMARK SCORECARD"
     vis_w = sum(2 if ord(ch) > 0xFFFF else 1 for ch in banner_text)
     banner_line = f"║ {banner_text}{' ' * max(1, 83 - vis_w)}║"
+
+    rss_line = ""
+    if platform.system() == "Linux" and _is_local_url(base_url):
+        try:
+            out_pids = subprocess.check_output(
+                ["pgrep", "-f", "llama-server"], text=True, stderr=subprocess.DEVNULL
+            ).splitlines()
+            best_rss = 0.0
+            for p in out_pids:
+                p = p.strip()
+                if p.isdigit() and os.path.isfile(f"/proc/{p}/status"):
+                    with open(f"/proc/{p}/status", "r", encoding="utf-8") as sf:
+                        for sline in sf:
+                            if sline.startswith("VmRSS:"):
+                                best_rss = max(best_rss, int(sline.split()[1]) / (1024.0 * 1024.0))
+            if best_rss > 0.5:
+                rss_line = f"{best_rss:.2f} GiB"
+        except Exception:
+            pass
 
     print(f"\n{BOLD}{GREEN}╔════════════════════════════════════════════════════════════════════════════════════╗{RESET}")
     print(f"{BOLD}{GREEN}{banner_line}{RESET}")
@@ -736,11 +755,22 @@ def run_benchmark_suite(base_url: str) -> None:
     if aff_note:
         print(f"  CPU Affinity        : {aff_note}")
     print(f"  Active Model        : {model_display}")
+    if rss_line:
+        print(f"  Server Peak VmRSS   : {rss_line}")
     print(f"  Prompt Prefill      : {pp_best:.2f} tok/s")
     print(f"  Decode (New C++20)  : {s1['dec_tps']:.2f} tok/s (TTFT: {s1['ttft_ms']:.0f} ms)")
     print(f"  Decode (Refactor)   : {s2['dec_tps']:.2f} tok/s ({s2_spec_note})")
     print(f"{BOLD}{GREEN}╚════════════════════════════════════════════════════════════════════════════════════╝{RESET}")
-    print(f"👉 Share your CPU scorecard: {CYAN}https://github.com/synchopate/llama-modchip/issues/new?template=benchmark.yml{RESET}\n")
+    import urllib.parse
+    q_params = urllib.parse.urlencode(
+        {
+            "template": "cpu_benchmark_submission.yml",
+            "title": f"[Benchmark] {cpu} — {s2['dec_tps']:.2f} tok/s on {prompt_label}",
+            "cpu_model": cpu,
+            "ram_spec": ram,
+        }
+    )
+    print(f"Submit scorecard (1-click pre-filled): {CYAN}https://github.com/synchopate/llama-modchip/issues/new?{q_params}{RESET}\n")
 
 
 DEFAULT_CHAT_SYSTEM_PROMPT = (
@@ -766,7 +796,7 @@ def run_interactive_chat(base_url: str, one_shot_prompt: Optional[str] = None) -
         return
 
     print(f"{BOLD}{CYAN}╔════════════════════════════════════════════════════════════════════════════════════╗{RESET}")
-    print(f"{BOLD}{CYAN}║ ♟️  llama-modchip v2.4 — Interactive CPU Chat + Live Stockfish-PVS Telemetry        ║{RESET}")
+    print(f"{BOLD}{CYAN}║ ♟️  llama-modchip v2.5.0 — Interactive CPU Chat + Live Stockfish-PVS Telemetry      ║{RESET}")
     print(f"{BOLD}{CYAN}╚════════════════════════════════════════════════════════════════════════════════════╝{RESET}")
     print(f"  • Hardware : {BOLD}{cpu}{RESET} ({ram} RAM | {hp})")
     print(f"  • Model    : {BOLD}{GREEN}{model_display}{RESET}")
@@ -822,7 +852,7 @@ def run_interactive_chat(base_url: str, one_shot_prompt: Optional[str] = None) -
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="llama-modchip v2.1 Interactive Terminal Chat & Benchmark Client")
+    parser = argparse.ArgumentParser(description="llama-modchip v2.5.0 Interactive Terminal Chat & Benchmark Client")
     parser.add_argument("--url", default=None, help="Server or Gateway base URL (auto-detected by default)")
     parser.add_argument("--bench", action="store_true", help="Run the 2-stage benchmark suite and print shareable scorecard")
     parser.add_argument("-p", "--prompt", default=None, help="Send a single prompt, stream output, print tok/s, and exit")

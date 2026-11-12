@@ -181,19 +181,54 @@ else
     OPENMP_OPT="${GGML_OPENMP:-ON}"
     CMAKE_ISA_ARGS+=(-DGGML_OPENMP="${OPENMP_OPT}")
 
-    if echo "$CPU_FLAGS" | grep -q "avx512_vnni" && echo "$CPU_FLAGS" | grep -q "avx512_bf16"; then
+    if [[ "${PORTABLE_X86_ISA:-}" == "avx2" ]]; then
+        echo "[*] Building portable x86-64-v3 (AVX2 + FMA + F16C + BMI2, zero AVX-512 instructions)..."
+        CMAKE_ISA_ARGS=(
+            -DGGML_NATIVE=OFF
+            -DBUILD_SHARED_LIBS="${BUILD_SHARED_LIBS:-ON}"
+            -DGGML_OPENMP="${OPENMP_OPT}"
+            -DGGML_AVX512=OFF
+            -DGGML_AVX512_VBMI=OFF
+            -DGGML_AVX512_VNNI=OFF
+            -DGGML_AVX512_BF16=OFF
+            -DGGML_AVX2=ON
+            -DGGML_FMA=ON
+            -DGGML_F16C=ON
+            -DGGML_BMI2=ON
+            -DCMAKE_C_FLAGS="-march=x86-64-v3 -mno-avx512f -mno-avxvnni"
+            -DCMAKE_CXX_FLAGS="-march=x86-64-v3 -mno-avx512f -mno-avxvnni"
+        )
+    elif [[ "${PORTABLE_X86_ISA:-}" == "avx512" ]]; then
+        echo "[*] Building portable x86-64-v4 + AVX-512 VBMI/VNNI/BF16 (Zen 4/5 & Ice Lake+)..."
+        CMAKE_ISA_ARGS=(
+            -DGGML_NATIVE=OFF
+            -DBUILD_SHARED_LIBS="${BUILD_SHARED_LIBS:-ON}"
+            -DGGML_OPENMP="${OPENMP_OPT}"
+            -DGGML_AVX512=ON
+            -DGGML_AVX512_VBMI=ON
+            -DGGML_AVX512_VNNI=ON
+            -DGGML_AVX512_BF16=ON
+            -DGGML_AVX2=ON
+            -DGGML_FMA=ON
+            -DGGML_F16C=ON
+            -DGGML_BMI2=ON
+            -DCMAKE_C_FLAGS="-march=x86-64-v4 -mavx512vbmi -mavx512vnni -mavx512bf16"
+            -DCMAKE_CXX_FLAGS="-march=x86-64-v4 -mavx512vbmi -mavx512vnni -mavx512bf16"
+        )
+    elif echo "$CPU_FLAGS" | grep -q "avx512_vnni" && echo "$CPU_FLAGS" | grep -q "avx512_bf16"; then
         echo "[*] Detected AVX-512 VNNI + BF16 (AMD Zen 4/5 or Intel Xeon) — enabling AVX-512 tile kernels..."
         CMAKE_ISA_ARGS+=(
             -DGGML_AVX512=ON
             -DGGML_AVX512_VNNI=ON
             -DGGML_AVX512_BF16=ON
         )
-        if echo "$CPU_FLAGS" | grep -q "avx512vbmi"; then
+        if echo "$CPU_FLAGS" | grep -qE "avx512_?vbmi"; then
             CMAKE_ISA_ARGS+=(-DGGML_AVX512_VBMI=ON)
         fi
     elif echo "$CPU_FLAGS" | grep -q "avx2"; then
-        echo "[*] Detected AVX2 + FMA — enabling AVX2 native kernels..."
+        echo "[*] Detected AVX2 + FMA — enabling AVX2 native kernels (AVX-512 disabled)..."
         CMAKE_ISA_ARGS+=(
+            -DGGML_AVX512=OFF
             -DGGML_AVX2=ON
             -DGGML_FMA=ON
             -DGGML_F16C=ON
@@ -219,7 +254,7 @@ CMAKE_ISA_ARGS+=(
 )
 
 # BUILD_TESTS=1 (default off) also builds test-quantize-fns and test-backend-ops
-BUILD_TARGETS=(llama-server llama-quantize llama-bench)
+BUILD_TARGETS=(llama-server llama-quantize llama-bench llama-perplexity)
 if [[ "${BUILD_TESTS:-0}" == "1" ]]; then
     CMAKE_ISA_ARGS+=(-DLLAMA_BUILD_TESTS=ON)
     BUILD_TARGETS+=(test-quantize-fns test-backend-ops)

@@ -13,6 +13,7 @@
 #   --workspace <dir>   Target build/model directory (default: ./workspace)
 #   --model <path>      Use an existing GGUF file instead of downloading
 #   --skip-model        Build binaries & scripts without downloading the 17.6 GiB (18.9 GB) GGUF
+#   --prebuilt          Download CPU-matched prebuilt release binary (-avx512 or -avx2) on Linux x86_64
 #   --corpus <dir>      Optional path to your own codebase to train RouteCrack n-grams
 #   --port <port>       llama-server port (default: 8789)
 # ==============================================================================
@@ -37,6 +38,7 @@ MODEL_PATH="${MODEL_PATH:-}"
 MODEL_EXPLICIT=0
 [[ -n "$MODEL_PATH" ]] && MODEL_EXPLICIT=1
 SKIP_MODEL="${SKIP_MODEL:-0}"
+USE_PREBUILT="${USE_PREBUILT:-0}"
 USER_CORPUS_DIR=""
 SERVER_HOST="${SERVER_HOST:-127.0.0.1}"
 SERVER_PORT="${SERVER_PORT:-8789}"
@@ -62,6 +64,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --skip-model)
             SKIP_MODEL=1
+            shift
+            ;;
+        --prebuilt)
+            USE_PREBUILT=1
             shift
             ;;
         --corpus)
@@ -131,26 +137,68 @@ fi
 
 echo ""
 echo "=============================================================================="
-echo " STEP 2/5: BUILDING PATCHED LLAMA.CPP + NATIVE ROUTECRACK SPECULATIVE ENGINE"
+echo " STEP 2/5: BUILDING OR DOWNLOADING PATCHED LLAMA-MODCHIP ENGINE"
 echo "=============================================================================="
 LLAMA_BUILD_DIR="${WORKSPACE_DIR}/llama.cpp"
-bash "${REPO_ROOT}/scripts/build_zen5_llama.sh" "$LLAMA_BUILD_DIR"
 
-cp -f "${LLAMA_BUILD_DIR}/build/bin/llama-server" "${WORKSPACE_DIR}/bin/llama-server-nemotron"
-cp -f "${LLAMA_BUILD_DIR}/build/bin/llama-quantize" "${WORKSPACE_DIR}/bin/llama-quantize" 2>/dev/null || true
-echo "[+] Installed binary: ${WORKSPACE_DIR}/bin/llama-server-nemotron"
-echo "[+] Installed binary: ${WORKSPACE_DIR}/bin/llama-quantize"
+detect_x86_prebuilt_asset() {
+    local flags=""
+    if [[ -r /proc/cpuinfo ]]; then
+        flags="$(grep -m1 -E '^flags' /proc/cpuinfo || true)"
+    fi
+    if echo "$flags" | grep -q "avx512f" && echo "$flags" | grep -qE "avx512_?vbmi"; then
+        printf '%s\n' "llama-server-modchip-linux-x86_64-avx512"
+    elif echo "$flags" | grep -q "avx2"; then
+        printf '%s\n' "llama-server-modchip-linux-x86_64-avx2"
+    else
+        printf '%s\n' ""
+    fi
+}
 
-echo "[*] Compiling RouteCrack vocabulary tokenizer & table builder..."
-g++ -O3 -std=c++17 "${REPO_ROOT}/speculative/cpp/rc_tokenize_nemotron.cpp" \
-    -o "${WORKSPACE_DIR}/bin/rc_tokenize_nemotron" \
-    -I"${LLAMA_BUILD_DIR}/include" -I"${LLAMA_BUILD_DIR}/ggml/include" \
-    -L"${LLAMA_BUILD_DIR}/build/bin" -lllama -lggml -lggml-base \
-    -Wl,-rpath,"${LLAMA_BUILD_DIR}/build/bin"
+PREBUILT_OK=0
+if [[ "$USE_PREBUILT" == "1" && "$(uname -s)" == "Linux" && "$(uname -m)" == "x86_64" ]]; then
+    ASSET_NAME="$(detect_x86_prebuilt_asset)"
+    if [[ -n "$ASSET_NAME" ]]; then
+        ASSET_URL="https://github.com/synchopate/llama-modchip/releases/download/v2.5.0/${ASSET_NAME}"
+        echo "[*] CPUID auto-selected prebuilt binary: ${ASSET_NAME}"
+        if curl -fL --progress-bar -o "${WORKSPACE_DIR}/bin/llama-server-nemotron" "$ASSET_URL"; then
+            chmod +x "${WORKSPACE_DIR}/bin/llama-server-nemotron"
+            echo "[+] Installed prebuilt binary: ${WORKSPACE_DIR}/bin/llama-server-nemotron (${ASSET_NAME})"
+            PREBUILT_OK=1
+        else
+            echo "[!] Prebuilt download failed; falling back to local source build..."
+        fi
+    else
+        echo "[i] Legacy x86_64 CPU without AVX2 detected; compiling scalar/AVX1 engine from source..."
+    fi
+fi
 
-g++ -O3 -std=c++17 "${REPO_ROOT}/speculative/cpp/rc_build_tables.cpp" \
-    -o "${WORKSPACE_DIR}/bin/rc_build_tables"
-echo "[+] Compiled RouteCrack table builders in ${WORKSPACE_DIR}/bin/"
+if [[ "$PREBUILT_OK" == "0" ]]; then
+    BUILD_TARGET_MODEL="${TARGET_MODEL:-nemotron}"
+    if [[ "$MODEL_PATH" == *[Dd]eep[Ss]eek* || "$MODEL_PATH" == *dsv4* ]]; then
+        BUILD_TARGET_MODEL="dsv4"
+    fi
+    TARGET_MODEL="$BUILD_TARGET_MODEL" bash "${REPO_ROOT}/scripts/build_zen5_llama.sh" "$LLAMA_BUILD_DIR"
+
+    cp -f "${LLAMA_BUILD_DIR}/build/bin/llama-server" "${WORKSPACE_DIR}/bin/llama-server-nemotron"
+    cp -f "${LLAMA_BUILD_DIR}/build/bin/llama-quantize" "${WORKSPACE_DIR}/bin/llama-quantize" 2>/dev/null || true
+    cp -f "${LLAMA_BUILD_DIR}/build/bin/llama-perplexity" "${WORKSPACE_DIR}/bin/llama-perplexity" 2>/dev/null || true
+    echo "[+] Installed binary: ${WORKSPACE_DIR}/bin/llama-server-nemotron"
+    echo "[+] Installed binary: ${WORKSPACE_DIR}/bin/llama-quantize"
+fi
+
+if [[ "$PREBUILT_OK" == "0" && -d "${LLAMA_BUILD_DIR}/include" ]]; then
+    echo "[*] Compiling RouteCrack vocabulary tokenizer & table builder..."
+    g++ -O3 -std=c++17 "${REPO_ROOT}/speculative/cpp/rc_tokenize_nemotron.cpp" \
+        -o "${WORKSPACE_DIR}/bin/rc_tokenize_nemotron" \
+        -I"${LLAMA_BUILD_DIR}/include" -I"${LLAMA_BUILD_DIR}/ggml/include" \
+        -L"${LLAMA_BUILD_DIR}/build/bin" -lllama -lggml -lggml-base \
+        -Wl,-rpath,"${LLAMA_BUILD_DIR}/build/bin"
+
+    g++ -O3 -std=c++17 "${REPO_ROOT}/speculative/cpp/rc_build_tables.cpp" \
+        -o "${WORKSPACE_DIR}/bin/rc_build_tables"
+    echo "[+] Compiled RouteCrack table builders in ${WORKSPACE_DIR}/bin/"
+fi
 
 echo ""
 echo "=============================================================================="
@@ -198,7 +246,7 @@ echo ""
 echo "=============================================================================="
 echo " STEP 4/5: BUILDING ROUTECRACK SPECULATIVE N-GRAM & CODEBOOK TABLES"
 echo "=============================================================================="
-if [[ -f "$MODEL_PATH" ]]; then
+if [[ -f "$MODEL_PATH" && -x "${WORKSPACE_DIR}/bin/rc_tokenize_nemotron" && -x "${WORKSPACE_DIR}/bin/rc_build_tables" ]]; then
     CORPUS_TXT="${WORKSPACE_DIR}/routecrack/bootstrap_corpus.txt"
     CORPUS_BIN="${WORKSPACE_DIR}/routecrack/corpus_nemotron_train.bin"
     echo "[*] Assembling coding & agentic <tool_call> training corpus..."
@@ -222,6 +270,8 @@ if [[ -f "$MODEL_PATH" ]]; then
     echo "[*] Building 8-level FNV-64 Hash Cascade, 300 Hot Rules & Macro Codebook..."
     "${WORKSPACE_DIR}/bin/rc_build_tables" "$CORPUS_BIN" "${WORKSPACE_DIR}/routecrack"
     echo "[+] RouteCrack tables ready in ${WORKSPACE_DIR}/routecrack/"
+elif [[ -f "$MODEL_PATH" ]]; then
+    echo "[i] Prebuilt binary mode active — RouteCrack will use its zero-setup online Trie/PPM/Two-Zone engine."
 else
     echo "[i] GGUF model not downloaded yet — RouteCrack will use its zero-setup online Trie/PPM/Two-Zone engine until tables are generated."
 fi
@@ -338,8 +388,17 @@ PYEOF
 eval "\$PROFILE_ENV"
 
 CACHE_V_TYPE="q4_0"
+EFFECTIVE_CTX_SIZE="\${MODCHIP_CTX_SIZE:-${CTX_SIZE}}"
 if [[ "\${MODEL_ARCH:-}" == "deepseek4" ]]; then
     CACHE_V_TYPE="q8_0"
+    if [[ -z "\${MODCHIP_CTX_SIZE:-}" && "${TOTAL_RAM_GB}" -lt 80 ]]; then
+        AVAIL_KIB="\$(awk '/MemAvailable:/ {print \$2}' /proc/meminfo 2>/dev/null || echo 62914560)"
+        if [[ "\${AVAIL_KIB:-62914560}" -lt 63438848 || "${TOTAL_RAM_GB}" -le 68 ]]; then
+            EFFECTIVE_CTX_SIZE=32768
+            echo "[i] 64GB Desktop OS Headroom Guard: defaulting to -c 32768 (~58.3 GiB VmRSS) so GUI/OS retain >=4 GiB free RAM."
+            echo "    (On a dedicated headless 64GB+ server, pass MODCHIP_CTX_SIZE=262144 ./start_server.sh for full 256K context.)"
+        fi
+    fi
 fi
 
 SERVER_HOST="\${SERVER_HOST:-${SERVER_HOST}}"
@@ -349,14 +408,14 @@ EXTRA_ARGS_ARR=()
 if [[ -n "\${EXTRA_SERVER_ARGS:-}" ]]; then
     read -r -a EXTRA_ARGS_ARR <<< "\${EXTRA_SERVER_ARGS}"
 fi
-echo "[*] Starting llama-server on http://\${SERVER_HOST}:\${SERVER_PORT} (Decode: \${DECODE_THREADS}T / Prefill: \${BATCH_THREADS}T [mask: \${TASKSET_MASK}], Context: ${CTX_SIZE})..."
+echo "[*] Starting llama-server on http://\${SERVER_HOST}:\${SERVER_PORT} (Decode: \${DECODE_THREADS}T / Prefill: \${BATCH_THREADS}T [mask: \${TASKSET_MASK}], Context: \${EFFECTIVE_CTX_SIZE})..."
 exec taskset -c "\${TASKSET_MASK}" "${WORKSPACE_DIR}/bin/llama-server-nemotron" \\
   --model "\$MODEL" \\
   --port "\${SERVER_PORT}" \\
   --host "\${SERVER_HOST}" \\
   --no-webui \\
   --offline \\
-  -c "${CTX_SIZE}" \\
+  -c "\${EFFECTIVE_CTX_SIZE}" \\
   -np 1 \\
   -b 2048 \\
   -ub 2048 \\

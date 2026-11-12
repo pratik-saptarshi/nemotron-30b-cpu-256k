@@ -184,7 +184,7 @@ Applying the **single-token ($N=1$, GEMV) bandwidth formula** (`Throughput × Ac
 
 ---
 
-## Q14: How does the 4-Level Register (`ZMM` AVX-512BW/VBMI) + L1D + L2 + L3 Tiler accelerate `DeepSeek-V4-Flash 284B` prefill to `44.36 tok/s` (`+77%`)?
+## Q14: How does the 4-Level Register (`ZMM` AVX-512BW/VBMI) + L1D + L2 + L3 Tiler accelerate `DeepSeek-V4-Flash 284B` prefill (`41.1–44.0 tok/s` cold, `44.36 tok/s` warm prefix)?
 
 1. **Bottleneck Breakdown**:
    - In a 284B MoE (`13.17B` active per token), prompt prefill ($N > 1$) and multi-turn agentic turns spend ~85% of wall-clock time inside dense (`Q2_0`, `VQ3_0`, `Q5_K`, `Q6_K`) and sparse MoE (`IQ1_S`, `IQ2_XXS`, `IQ1_M`) matrix-matrix contractions, and ~15% inside `FLASH_ATTN_EXT`, `quantize_row_q8_K`, `RMS_NORM`, and `DSV4_HC_PRE/POST`.
@@ -192,7 +192,7 @@ Applying the **single-token ($N=1$, GEMV) bandwidth formula** (`Throughput × Ac
    - **Level 0 (`ZMM` Register-Stationary AVX-512BW/VBMI `_1x8`, `_1x4`, `_1x3`, `_1x2`, `1x1`)**: Unpacks each weight block **once in `ZMM` registers** across up to `8` token columns (`64` weights per SIMD instruction).
    - **Levels 1 & 2 (L1D `{8, 4, 3, 2}` Zero-Remainder Stepping + L2 `128`-Row Tiling + Cache-Aligned MoE Dynamic Queue)**: Decomposes any column count $M \ge 2$ into $\{8, 4, 3, 2\}$ ($5 = 3+2$, $9 = 4+3+2$), eliminating `1x1` fallback across ragged 256-expert MoE buckets (`MUL_MAT_ID`).
    - **Register-Stationary AVX-512 `MQA8` FlashAttention & Token-Affinity `HC_PRE/POST -> RMS_NORM`**: Converts each 16-element `FP16` K/V slice once per 8 query heads (`FLASH_ATTN_EXT` `2.0x` faster: `415.1 ms -> 208.5 ms`), vectorizes `quantize_row_q8_K` in AVX-512, and pins token `it` to thread `ith = it % nth` across `DSV4_HC_POST -> DSV4_HC_PRE -> RMS_NORM`.
-   - **Measured Result**: Cold prefill rises from `24.73–25.19 tok/s` to **`43.16–43.98 tok/s` (`+77.8%`)**, and multi-turn agentic turns sustain **`44.36 tok/s` prefill** and **`9.05–9.95 tok/s` lossless decode**.
+   - **Measured Result**: Cold prefill rises from `24.73–25.19 tok/s` to **`41.11–43.98 tok/s` (`+77.8%`)**, and multi-turn agentic turns with KV prefix reuse sustain **`44.36 tok/s` prefill** (`339` new / `403` total KV tokens) and **`9.05–9.55 tok/s` unpruned `Top-6` decode** (`19.4–25.3 tok/s` with `Stockfish-PVS` / tool bursts).
 
 ---
 

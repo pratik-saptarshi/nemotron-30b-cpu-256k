@@ -549,6 +549,12 @@ def main() -> int:
     parser.add_argument("--compare", "--baseline", dest="compare", default="", help="Compare against a baseline JSON evaluation file")
     parser.add_argument("--save-md", default="", help="Save Markdown comparison report to path")
     parser.add_argument("--target-tps", type=float, default=15.0, help="Target decode tok/s for full 20/20 speed score (default: 15.0 for 30B, use 9.0 for 284B)")
+    parser.add_argument("--llama-perplexity", default="", help="Optional path to llama-perplexity binary for continuous PPL measurement")
+    parser.add_argument("--model-gguf", default="", help="Optional GGUF path (required when --llama-perplexity is passed)")
+    parser.add_argument("--ppl-corpus", default="", help="Optional corpus file for llama-perplexity (defaults to WikiText-2 test)")
+    parser.add_argument("--ppl-chunks", type=int, default=8, help="Chunks of 512 tokens for llama-perplexity (default: 8 = 4096 tok)")
+    parser.add_argument("--save-logits", default="", help="Optional path to save 12-probe top-64 logprobs JSON (Reference pass)")
+    parser.add_argument("--ref-logits", default="", help="Optional reference logprobs JSON to compute continuous Logit KL-Divergence")
     args = parser.parse_args()
 
     print("=" * 90)
@@ -576,6 +582,43 @@ def main() -> int:
     print(f" 🏆 TOTAL SCORE: {total_score:.1f} / 100.0 pts (Quality & Tool-Use: {quality_only:.1f} / 80.0 pts)")
     print("=" * 90)
 
+    continuous_metrics: Dict[str, Any] = {}
+    if (args.llama_perplexity and args.model_gguf) or args.save_logits or args.ref_logits:
+        bench_dir = os.path.dirname(os.path.abspath(__file__))
+        if bench_dir not in sys.path:
+            sys.path.insert(0, bench_dir)
+        import eval_perplexity_and_kld as cont_eval
+
+        if args.save_logits or args.ref_logits:
+            cur_lp = cont_eval.collect_completion_logprobs(args.url)
+            if args.save_logits:
+                os.makedirs(os.path.dirname(os.path.abspath(args.save_logits)), exist_ok=True)
+                with open(args.save_logits, "w", encoding="utf-8") as lf:
+                    json.dump(cur_lp, lf, indent=2)
+                print(f"[+] Saved reference logit distributions to: {args.save_logits}")
+            if args.ref_logits and os.path.isfile(args.ref_logits):
+                with open(args.ref_logits, "r", encoding="utf-8") as lf:
+                    ref_lp = json.load(lf)
+                kld_res = cont_eval.compute_kld_from_records(ref_lp, cur_lp)
+                continuous_metrics["kld"] = kld_res
+                print(
+                    f" [Continuous KLD] {kld_res['mean_kld_nats']:.5f} nats/tok "
+                    f"(+{kld_res['equiv_ppl_delta_pct']:.2f}% equiv PPL, Top-1: {kld_res['top1_agreement_pct']:.1f}%)"
+                )
+
+        if args.llama_perplexity and args.model_gguf:
+            repo_root = os.path.dirname(bench_dir)
+            corpus = args.ppl_corpus or cont_eval.ensure_default_corpus(os.path.join(repo_root, "workspace", "cache"))
+            ppl_res = cont_eval.run_llama_perplexity(
+                args.llama_perplexity,
+                args.model_gguf,
+                corpus,
+                ctx_size=512,
+                chunks=args.ppl_chunks,
+            )
+            continuous_metrics["perplexity"] = ppl_res
+            print(f" [Continuous PPL] {ppl_res['ppl']:.4f} +/- {ppl_res['ppl_std']:.5f} ({ppl_res['eval_tokens']} tok)")
+
     result = {
         "label": args.label,
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
@@ -588,6 +631,7 @@ def main() -> int:
             "speed_ram_20": s_spd,
         },
         "telemetry": d_spd,
+        "continuous": continuous_metrics,
         "details": {
             "tools": d_tools,
             "coding": d_code,
@@ -631,6 +675,19 @@ def main() -> int:
             f"| **Stockfish-PVS Acceptance (`%`)** | `{b_t['draft_accept_pct']}%` | **`{c_t['draft_accept_pct']}%`** | `{c_t['draft_accept_pct'] - b_t['draft_accept_pct']:+.1f}%` |",
             f"| **Resident RAM (`VmRSS GiB`)** | `{b_t['rss_gib']} GiB` | **`{c_t['rss_gib']} GiB`** | **`{ram_delta:+.2f} GiB`** |",
         ]
+        b_cont = base.get("continuous") or {}
+        c_cont = result.get("continuous") or {}
+        if "perplexity" in b_cont and "perplexity" in c_cont:
+            bp = b_cont["perplexity"]["ppl"]
+            cp = c_cont["perplexity"]["ppl"]
+            md_lines.append(
+                f"| **Continuous Perplexity (`PPL`)** | `{bp:.4f}` | **`{cp:.4f}`** | `{cp - bp:+.4f}` (`{((cp / max(1e-6, bp)) - 1.0) * 100.0:+.2f}%`) |"
+            )
+        if "kld" in c_cont:
+            ck = c_cont["kld"]
+            md_lines.append(
+                f"| **Continuous Logit KLD (`nats/tok`)** | `0.00000` *(ref)* | **`{ck['mean_kld_nats']:.5f}`** | `+{ck['equiv_ppl_delta_pct']:.2f}%` equiv PPL (`{ck['top1_agreement_pct']:.1f}%` Top-1) |"
+            )
         md_report = "\n".join(md_lines) + "\n"
         print("\n" + md_report)
         if args.save_md:

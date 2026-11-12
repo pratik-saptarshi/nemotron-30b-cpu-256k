@@ -7,11 +7,11 @@ body:
     attributes:
       value: |
         ### 🏆 Submit Your CPU or Hybrid GPU+CPU Scorecard!
-        Run either the 2-second zero-download readiness check:
+        Run either the 2-second zero-download readiness check (evaluates both 30B and 284B 64GB RAM headroom):
         ```bash
         curl -sL https://raw.githubusercontent.com/synchopate/llama-modchip/main/scripts/check_cpu_readiness.py | python3
         ```
-        or the live 30-second model benchmark:
+        or the live 30-second model benchmark (which prints a pre-filled submission link):
         ```bash
         ./modchip bench
         ```
@@ -40,8 +40,10 @@ body:
     attributes:
       label: "Model / Tool Tested"
       options:
-        - "DeepSeek-V4-Flash-0731-Fractal (284.33B Total / 13.17B Active, 56.56 GiB)"
-        - "NVIDIA-Nemotron-3.5-30B-A3B-Fractal-64 (30.2B Total / 3.0B Active, 14.35 GiB)"
+        - "DeepSeek-V4-Flash-0731-VQ3 (284.33B Total / 13.17B Active, 56.40 GiB)"
+        - "DeepSeek-V4-Flash-0731-Fractal (284.33B Total / 13.17B Active, 56.57 GiB)"
+        - "NVIDIA-Nemotron-3.5-30B-A3B-VQ3-64 (30.2B Total / 3.0B Active, 13.30 GiB)"
+        - "NVIDIA-Nemotron-3.5-30B-A3B-Fractal-64 (30.2B Total / 3.0B Active, 14.36 GiB)"
         - "NVIDIA-Nemotron-3.5-30B-A3B-Fractal-MXFP4 (15.95 GiB)"
         - "Qwen3-30B-A3B / Qwen3-14B"
         - "2-Second CPU Readiness Check (check_cpu_readiness.py)"

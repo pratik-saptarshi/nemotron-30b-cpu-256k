@@ -4,6 +4,7 @@
 # ==============================================================================
 # Usage:
 #   ./modchip setup [args]          # Build patched llama.cpp + Stockfish-PVS & download GGUF
+#   ./modchip download-bin [dir]    # Download CPU-matched Linux x86_64 binary (-avx512 or -avx2)
 #   ./modchip start [model.gguf]    # Start 256K CPU Server + Web UI Gateway in background
 #   ./modchip chat [-p "prompt"]    # Interactive terminal chat with live tok/s telemetry
 #   ./modchip bench                 # Run 2-stage speed test & print shareable CPU scorecard
@@ -486,6 +487,37 @@ cmd_claude() {
     exec claude "${extra_flags[@]}" "$@"
 }
 
+cmd_download_bin() {
+    local dest_dir="${1:-${WORKSPACE_DIR}/bin}"
+    mkdir -p "$dest_dir"
+    if [[ "$(uname -s)" != "Linux" || "$(uname -m)" != "x86_64" ]]; then
+        echo -e "${YELLOW}[!] Prebuilt Linux x86_64 binaries do not match $(uname -s)/$(uname -m); run './modchip setup' to build natively.${RESET}"
+        exit 1
+    fi
+    local flags=""
+    [[ -r /proc/cpuinfo ]] && flags="$(grep -m1 -E '^flags' /proc/cpuinfo || true)"
+    local isa_suffix="avx2"
+    if echo "$flags" | grep -q "avx512f" && echo "$flags" | grep -qE "avx512_?vbmi"; then
+        isa_suffix="avx512"
+    elif ! echo "$flags" | grep -q "avx2"; then
+        echo -e "${YELLOW}[!] CPU lacks AVX2; run './modchip setup' to compile scalar/AVX1 fallback from source.${RESET}"
+        exit 1
+    fi
+    local srv_asset="llama-server-modchip-linux-x86_64-${isa_suffix}"
+    local cli_asset="llama-cli-modchip-linux-x86_64-${isa_suffix}"
+    local base_url="https://github.com/synchopate/llama-modchip/releases/download/v2.5.0"
+    echo -e "${CYAN}[*] CPUID detected '${isa_suffix}' ISA — downloading ${srv_asset} & ${cli_asset}...${RESET}"
+    curl -fL --progress-bar -o "${dest_dir}/${srv_asset}" "${base_url}/${srv_asset}"
+    chmod +x "${dest_dir}/${srv_asset}"
+    ln -sf "${srv_asset}" "${dest_dir}/llama-server-modchip-linux-x86_64"
+    cp -f "${dest_dir}/${srv_asset}" "${WORKSPACE_DIR}/bin/llama-server-nemotron" 2>/dev/null || true
+    if curl -fL --progress-bar -o "${dest_dir}/${cli_asset}" "${base_url}/${cli_asset}"; then
+        chmod +x "${dest_dir}/${cli_asset}"
+        ln -sf "${cli_asset}" "${dest_dir}/llama-cli-modchip-linux-x86_64"
+    fi
+    echo -e "${GREEN}[✓] Installed ${dest_dir}/${srv_asset} (symlinked as llama-server-modchip-linux-x86_64)${RESET}"
+}
+
 cmd_tui() {
     local model="${1:-$DEFAULT_MODEL}"
     exec python3 "${REPO_ROOT}/scripts/llama_modchip.py" --model "$model" --port "$SERVER_PORT" --tui
@@ -500,6 +532,7 @@ SUBCMD="${1:-help}"
 
 case "$SUBCMD" in
     setup|install)   cmd_setup "$@" ;;
+    download-bin|bin) cmd_download_bin "$@" ;;
     start|up|run)    cmd_start "$@" ;;
     stop|down)       cmd_stop ;;
     restart)         cmd_stop; cmd_start "$@" ;;
