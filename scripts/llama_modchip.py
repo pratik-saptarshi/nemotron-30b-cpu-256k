@@ -453,157 +453,171 @@ class ModchipProfile:
     hacks: List[HackItem] = field(default_factory=list)
 
 
-def compute_modchip_profile(hw: HardwareInfo, model: GGUFModelInfo, swa_override: int = 0) -> ModchipProfile:
-    # 1. Dynamic L3 KV Window sizing: target 25% of L3 cache capacity
-    # using the active KV bytes/token (with EAKV Q8_0/Q4_0 enabled)
+def _build_hacks_list(
+    hw: HardwareInfo,
+    model: GGUFModelInfo,
+    l3_window: int,
+    attn_window: int,
+    attn_sinks: int,
+    swa_stride: int,
+    disable_chunking: int,
+    rc_enabled: int,
+    moe_top_k: int,
+    use_repack: bool,
+    use_eakv: bool,
+) -> List[HackItem]:
     kv_bpt = max(model.kv_bytes_per_tok_q8q4, 256)
-    l3_budget_bytes = int(hw.total_l3_bytes * 0.25)
-    raw_l3_tokens = l3_budget_bytes // kv_bpt
-    # Align to 64 tokens, clamp to [256, 4096] (or 2048 default on hybrid SSM so StreamingLLM band stays tight)
-    if model.is_hybrid_ssm:
-        l3_window = min(2048, max(512, (raw_l3_tokens // 64) * 64))
-    else:
-        l3_window = min(4096, max(256, (raw_l3_tokens // 64) * 64))
 
-    # 2. Sliding Window Attention (SWA) + Attention Sinks + Safety Lock
-    # Default: attn_window = 0 (Full 256K Exact Global Attention, matching systemd service).
-    # Opt-in via --swa <tokens> (e.g., --swa 4096) for approximate windowed attention.
-    attn_sinks = 16
-    if model.is_hybrid_ssm:
-        attn_window = swa_override if swa_override > 0 else 0
-        swa_stride = 1
-        if attn_window == 0:
+    # Sliding Window Attention status
+    if model.arch == "deepseek4":
+        swa_safety = "LOCKED"
+        swa_enabled = False
+        swa_val = f"LOCKED (Native MLA Compressed KV on all {model.attn_layers} layers)"
+        swa_reason = "DeepSeek-V4 MLA uses latent KV + Lightning Indexer; SWA windowing is locked off."
+    elif model.is_hybrid_ssm:
+        swa_enabled = attn_window > 0
+        if not swa_enabled:
             swa_safety = "SAFE"
-            swa_val = f"WIN=0 (Full 256K Exact Global Attention on all {model.attn_layers} GQA layers; opt-in --swa 4096)"
+            swa_val = f"OFF — WIN=0 (Full Exact Global Attention on all {model.attn_layers} GQA layers; [SPACE] -> WIN=4096)"
             swa_reason = (
                 f"Hybrid SSM ({model.ssm_layers} Mamba-2 + {model.attn_layers} GQA): "
-                f"defaults to exact 256K attention (1.5 GiB KV); pass --swa 4096 for approximate SWA."
+                f"exact 256K attention; toggle ON for WIN=4096 L3-resident SWA."
             )
         else:
             swa_safety = "APPROXIMATE"
-            swa_val = f"WIN={attn_window}, SINKS={attn_sinks}, STRIDE=1 (All {model.attn_layers} GQA layers — Approximate)"
+            swa_val = f"ON — WIN={attn_window}, SINKS={attn_sinks}, STRIDE=1 (All {model.attn_layers} GQA layers)"
             swa_reason = (
-                f"Approximate beyond {attn_window}t window: {model.ssm_layers} Mamba-2 layers hold recurrent state, "
+                f"Approximate beyond {attn_window}t window: {model.ssm_layers} Mamba-2 layers hold global state, "
                 f"while {model.attn_layers} GQA layers attend to {attn_sinks} sinks + last {attn_window} tokens."
             )
     else:
-        # Pure GQA Transformer: SAFETY LOCK! Full SWA would erase memory beyond 4K.
-        # When SWA is enabled, activate Interleaved 3:1 SWA (LLAMA_SWA_STRIDE=4).
-        attn_window = swa_override if swa_override > 0 else 0
-        swa_stride = 4
-        global_layers = model.attn_layers // swa_stride
+        global_layers = model.attn_layers // max(swa_stride, 1)
         swa_layers = model.attn_layers - global_layers
-        if attn_window == 0:
+        swa_enabled = attn_window > 0
+        if not swa_enabled:
             swa_safety = "SAFE"
-            swa_val = f"WIN=0 (Full Exact Global Attention on all {model.attn_layers} GQA layers)"
+            swa_val = f"OFF — WIN=0 (Full Exact Global Attention on all {model.attn_layers} GQA layers; [SPACE] -> WIN=4096)"
             swa_reason = (
-                f"Pure GQA ({model.attn_layers}L): defaults to exact global attention; "
-                f"if --swa is enabled, Safety Lock enforces 3:1 Interleaved SWA ({global_layers} global layers)."
+                f"Pure GQA ({model.attn_layers}L): exact global attention; "
+                f"if toggled ON, Safety Lock enforces 3:1 Interleaved SWA ({global_layers} global layers)."
             )
         else:
             swa_safety = "INTERLEAVED"
-            swa_val = f"WIN={attn_window}, SINKS={attn_sinks}, STRIDE=4 ({swa_layers} SWA + {global_layers} Global)"
+            swa_val = f"ON — WIN={attn_window}, SINKS={attn_sinks}, STRIDE={swa_stride} ({swa_layers} SWA + {global_layers} Global)"
             swa_reason = (
                 f"SAFETY LOCK: Pure GQA ({model.attn_layers}L) has no SSM state. "
-                f"Full SWA blocked to prevent >4K amnesia; auto-switched to 3:1 Interleaved SWA."
+                f"Full SWA blocked to prevent >4K amnesia; running 3:1 Interleaved SWA."
             )
 
-    # 3. RouteCrack Confidence Gate:
-    # Empirical CPU benchmark proves <75% precision wastes DDR5 bandwidth on rejected MoE experts.
-    rc_enabled = 1
+    # RouteCrack status
     if model.is_hybrid_ssm:
-        rc_cert_d0, rc_cert_d1, rc_cert_d2 = 84, 92, 96
         rc_mode = "Strict Zero-Rollback (84/92/96)"
         rc_reason = "Mamba-2 state rollback costs ~4.3ms + cold MoE DRAM fetches -> requires >=85.9% precision."
     elif model.is_moe:
-        rc_cert_d0, rc_cert_d1, rc_cert_d2 = 80, 90, 95
         rc_mode = "CPU-MoE High-Precision (80/90/95)"
         rc_reason = "Each rejected draft token fetches cold MoE experts from DDR5 -> low gates (60/70/80) hurt tok/s!"
     else:
-        rc_cert_d0, rc_cert_d1, rc_cert_d2 = 78, 88, 94
         rc_mode = "Dense GQA Balanced (78/88/94)"
         rc_reason = "Dense weights already streamed per batch; zero KV rollback cost."
 
-    # 4. Norm-Preserving Dynamic MoE Top-K Pruning (LLAMA_MOE_TOP_K)
+    rc_active = bool(rc_enabled)
+    rc_val = f"ON — {rc_mode}" if rc_active else f"OFF (Draftless RouteCrack paused; [SPACE] to re-enable {rc_mode})"
+
+    # MoE Top-K Pruning status
     if model.arch == "deepseek4":
-        moe_top_k = 0
         moe_safety = "LOCKED"
         moe_val = f"LOCKED (Native Top-{model.expert_used_count} MLA/MoE Routing Preserved)"
         moe_reason = "DeepSeek-V4 uses 3 hash-routed + 40 learned Top-6 layers; keep Top-6 unpruned."
         moe_enabled = False
     elif model.is_moe and model.expert_used_count >= 6:
-        moe_top_k = 4
-        saved_pct = int(round((1.0 - (moe_top_k / model.expert_used_count)) * 100))
-        if model.expert_weights_norm:
-            moe_safety = "TRADE-OFF"
+        if 0 < moe_top_k < model.expert_used_count:
+            saved_pct = int(round((1.0 - (moe_top_k / model.expert_used_count)) * 100))
+            moe_enabled = True
+            if model.expert_weights_norm:
+                moe_safety = "TRADE-OFF"
+                moe_val = (
+                    f"ON — Top-K: {model.expert_used_count} -> {moe_top_k} "
+                    f"({model.effective_expert_units} -> {moe_top_k + (model.effective_expert_units - model.expert_used_count)} eff. units, "
+                    f"-{saved_pct}% routed DRAM, norm=True)"
+                )
+                moe_reason = (
+                    "Speed/Quality Trade-off: expert_weights_norm=True renormalizes top-4 experts; "
+                    f"toggle OFF (or LLAMA_MOE_TOP_K={model.expert_used_count}) for native Top-{model.expert_used_count} recall."
+                )
+            else:
+                moe_safety = "EXPERIMENTAL"
+                moe_val = f"ON — Top-K: {model.expert_used_count} -> {moe_top_k} (-{saved_pct}% routed MoE DRAM, norm=False)"
+                moe_reason = "Cuts routed expert traffic, check output variance as expert_weights_norm=False."
+        else:
+            moe_enabled = False
+            moe_safety = "SAFE"
             moe_val = (
-                f"Top-K: {model.expert_used_count} -> {moe_top_k} "
-                f"({model.effective_expert_units} -> {moe_top_k + (model.effective_expert_units - model.expert_used_count)} eff. units, "
-                f"-{saved_pct}% routed DRAM, norm=True, scale={model.expert_weights_scale})"
+                f"OFF — Native Unpruned Top-{model.expert_used_count}/{model.expert_used_count} Active "
+                f"(Full Symbol Recall; [SPACE] -> Top-4)"
             )
             moe_reason = (
-                "Speed/Quality Trade-off: expert_weights_norm=True renormalizes top-4 experts; "
-                f"set LLAMA_MOE_TOP_K={model.expert_used_count} for unpruned native quality."
+                f"All {model.expert_used_count} routed experts active per token (best C/systems API recall; "
+                f"+50% routed MoE DRAM vs Top-4)."
             )
-        else:
-            moe_safety = "EXPERIMENTAL"
-            moe_val = f"Top-K: {model.expert_used_count} -> {moe_top_k} (-{saved_pct}% routed MoE DRAM, norm=False)"
-            moe_reason = "Cuts 50% routed expert traffic (8->4), check output variance as expert_weights_norm=False."
-        moe_enabled = True
     else:
-        moe_top_k = 0
         moe_safety = "LOCKED"
         moe_val = "LOCKED (Dense Model — 0 MoE Experts)"
         moe_reason = "Model has no routed MoE experts; Top-K pruning not applicable."
         moe_enabled = False
 
-    disable_chunking = 1
-    use_repack = hw.has_avx512_vnni or hw.has_avx2
-    use_eakv = True
+    l3_enabled = 0 < l3_window < 262144
+    l3_val = (
+        f"ON — LLAMA_KV_L3_WINDOW={l3_window} ({round(l3_window * kv_bpt / (1024*1024), 2)} MiB / {int(hw.total_l3_bytes/(1024*1024))} MiB L3)"
+        if l3_enabled
+        else "OFF — Full KV cached in L3 (NTA bypass disabled; [SPACE] to re-enable L3 window)"
+    )
 
-    hacks = [
+    chunk_off = bool(disable_chunking)
+    ccd_state = "Unchunked KV ON" if chunk_off else "Chunked KV Fallback"
+
+    return [
         HackItem(
             1, "thp_arena", "2MB Transparent HugePages (MADV_HUGEPAGE Arena+MMap)",
-            "UNIVERSAL", "SAFE", True,
-            f"ON (Host THP={hw.thp_mode}, 2MB Pages)",
-            "Eliminates 4KB L2-STLB misses across 4.6-24GB model weights (+24% decode)."
+            "BOOT", "SAFE", True,
+            f"BOOT (Host THP={hw.thp_mode}, 2MB Pages)",
+            "Applied at model load: eliminates 4KB L2-STLB misses across model weights (+24% decode)."
         ),
         HackItem(
-            2, "ccd_pinning", "1:1 Physical Core Pinning + Multi-CCD Topology Guard",
-            "UNIVERSAL", "SAFE", True,
+            2, "ccd_pinning", "1:1 Physical Core Pinning + Single-Pass KV Scan",
+            "LIVE-SHM", "SAFE", chunk_off,
             (
-                f"ON (-t {hw.decode_threads} decode / -tb {hw.batch_threads} prefill, OMP_PROC_BIND={hw.omp_proc_bind}, {hw.num_ccds} CCDs)"
+                f"{ccd_state} (-t {hw.decode_threads} decode / -tb {hw.batch_threads} prefill, {hw.num_ccds} CCDs)"
                 if hw.decode_threads != hw.batch_threads
-                else f"ON ({hw.batch_threads} phys cores: {hw.taskset_mask[:36]}, {hw.num_ccds} CCDs, OMP_PROC_BIND={hw.omp_proc_bind})"
+                else f"{ccd_state} ({hw.batch_threads} phys cores: {hw.taskset_mask[:36]}, {hw.num_ccds} CCDs)"
             ),
             (
-                f"Multi-CCD Guard ({hw.num_ccds} CCDs): caps decode to {hw.decode_threads} threads ({hw.omp_proc_bind}) to cut Infinity Fabric barrier overhead, full {hw.batch_threads}T prefill."
+                f"Multi-CCD Guard ({hw.num_ccds} CCDs): caps decode to {hw.decode_threads} threads ({hw.omp_proc_bind}); [SPACE] toggles KV chunking."
                 if hw.decode_threads != hw.batch_threads
-                else "Prevents SMT sibling contention & cross-CCD Infinity Fabric L3 thrashing (+52% prefill)."
+                else "Prevents SMT sibling contention & multi-chunk KV merge overhead; [SPACE] toggles KV chunking."
             )
         ),
         HackItem(
             3, "vnni_repack", "ISA-Adaptive In-Memory Weight Tile Repacking (--repack)",
-            "UNIVERSAL", "SAFE" if use_repack else "LOCKED", use_repack,
-            "ON (AVX-512 VNNI q4_0_8x8 / AVX2 q4_0_4x8)" if use_repack else "OFF",
-            "Repacks GGUF tensors at load time into interleaved SIMD register tiles (+19% GEMV)."
+            "BOOT", "SAFE" if use_repack else "LOCKED", use_repack,
+            "BOOT (AVX-512 VNNI q4_0_8x8 / AVX2 q4_0_4x8)" if use_repack else "LOCKED (CPU lacks AVX2)",
+            "Applied at model load: repacks GGUF tensors into interleaved SIMD register tiles (+19% GEMV)."
         ),
         HackItem(
             4, "harp_cache", "Zero-Prefill Agentic Prefix Cache (HARP /dev/shm)",
-            "UNIVERSAL", "SAFE", True,
-            "ON (/dev/shm/nemotron_agent_prefix.bin + SSE Gateway)",
-            "Restores 22K-token agentic tool definitions in <150ms (0 prefill compute)."
+            "BOOT", "SAFE", True,
+            "BOOT (--slot-save-path + SSE Gateway prefix reuse)",
+            "Applied at server startup: restores cached agentic tool prefixes with minimal prefill."
         ),
         HackItem(
             5, "l3_isolation", "Bidirectional L3 Cache Isolation (_MM_HINT_NTA)",
-            "AUTO-ADAPTIVE", "ADAPTIVE", True,
-            f"LLAMA_KV_L3_WINDOW={l3_window} ({round(l3_window * kv_bpt / (1024*1024), 2)} MiB / {int(hw.total_l3_bytes/(1024*1024))} MiB L3)",
+            "LIVE-SHM", "ADAPTIVE", l3_enabled,
+            l3_val,
             f"Auto-sized from {kv_bpt} B/tok so hot KV occupies <=25% L3; older tokens bypass L3 via _MM_HINT_NTA."
         ),
         HackItem(
             6, "routecrack", "RouteCrack Draftless Speculative Engine (FNV64+Trie+PPM)",
-            "AUTO-ADAPTIVE", "ADAPTIVE", True,
-            f"ON — {rc_mode}",
+            "LIVE-SHM", "ADAPTIVE", rc_active,
+            rc_val,
             rc_reason
         ),
         HackItem(
@@ -611,33 +625,93 @@ def compute_modchip_profile(hw: HardwareInfo, model: GGUFModelInfo, swa_override
             "Symmetric MLA KV Quantization (-ctk q8_0 -ctv q8_0)"
             if model.arch == "deepseek4"
             else "Asymmetric KV Quantization (-ctk q8_0 -ctv q4_0)",
-            "AUTO-ADAPTIVE", "SAFE", use_eakv,
+            "BOOT", "SAFE", use_eakv,
             (
-                f"ON ({model.kv_bytes_per_tok_fp16} B/tok FP16 -> {model.kv_bytes_per_tok_q8q4} B/tok Q8_0 MLA, -46.9%)"
+                f"BOOT ({model.kv_bytes_per_tok_fp16} B/tok FP16 -> {model.kv_bytes_per_tok_q8q4} B/tok Q8_0 MLA, -46.9%)"
                 if model.arch == "deepseek4"
-                else f"ON ({model.kv_bytes_per_tok_fp16} B/tok FP16 -> {model.kv_bytes_per_tok_q8q4} B/tok Q8/Q4, -62.5%)"
+                else f"BOOT ({model.kv_bytes_per_tok_fp16} B/tok FP16 -> {model.kv_bytes_per_tok_q8q4} B/tok Q8/Q4, -62.5%)"
             ),
             (
-                "DeepSeek-V4 MLA requires matching K/V cache types (Q8_0/Q8_0 or Q4_0/Q4_0)."
+                "Applied at server startup: DeepSeek-V4 MLA requires matching K/V cache types (Q8_0/Q8_0)."
                 if model.arch == "deepseek4"
-                else "Preserves FP16-equivalent needle retrieval on Keys (Q8_0) while halving Value bandwidth (Q4_0)."
+                else "Applied at server startup: Keys in Q8_0, Values in Q4_0."
             ),
         ),
         HackItem(
             8, "hybrid_swa", "Architecture-Aware Sliding Window Attention + 16 Sinks",
-            "ARCH-CONDITIONAL", swa_safety, True,
+            "LIVE-SHM", swa_safety, swa_enabled,
             swa_val,
             swa_reason
         ),
         HackItem(
             9, "moe_pruning", "Norm-Preserving Dynamic MoE Top-K Expert Pruning",
-            "ARCH-CONDITIONAL", moe_safety, moe_enabled,
+            "LIVE-SHM", moe_safety, moe_enabled,
             moe_val,
             moe_reason
         ),
     ]
 
-    # Honor explicit user environment variable overrides (env > computed profile)
+
+def refresh_profile_hacks(prof: ModchipProfile) -> None:
+    prof.hacks = _build_hacks_list(
+        hw=prof.hw,
+        model=prof.model,
+        l3_window=prof.l3_window,
+        attn_window=prof.attn_window,
+        attn_sinks=prof.attn_sinks,
+        swa_stride=prof.swa_stride,
+        disable_chunking=prof.disable_chunking,
+        rc_enabled=prof.rc_enabled,
+        moe_top_k=prof.moe_top_k,
+        use_repack=prof.use_repack,
+        use_eakv=prof.use_eakv,
+    )
+
+
+def compute_modchip_profile(hw: HardwareInfo, model: GGUFModelInfo, swa_override: int = 0) -> ModchipProfile:
+    # 1. Dynamic L3 KV Window sizing: target 25% of L3 cache capacity
+    kv_bpt = max(model.kv_bytes_per_tok_q8q4, 256)
+    l3_budget_bytes = int(hw.total_l3_bytes * 0.25)
+    raw_l3_tokens = l3_budget_bytes // kv_bpt
+    if model.is_hybrid_ssm:
+        l3_window = min(2048, max(512, (raw_l3_tokens // 64) * 64))
+    else:
+        l3_window = min(4096, max(256, (raw_l3_tokens // 64) * 64))
+
+    # 2. Sliding Window Attention (SWA) + Attention Sinks + Safety Lock
+    attn_sinks = 16
+    if model.arch == "deepseek4":
+        attn_window = 0
+        swa_stride = 1
+    elif model.is_hybrid_ssm:
+        attn_window = swa_override if swa_override > 0 else 0
+        swa_stride = 1
+    else:
+        attn_window = swa_override if swa_override > 0 else 0
+        swa_stride = 4
+
+    # 3. RouteCrack Confidence Gate
+    rc_enabled = 1
+    if model.is_hybrid_ssm:
+        rc_cert_d0, rc_cert_d1, rc_cert_d2 = 84, 92, 96
+    elif model.is_moe:
+        rc_cert_d0, rc_cert_d1, rc_cert_d2 = 80, 90, 95
+    else:
+        rc_cert_d0, rc_cert_d1, rc_cert_d2 = 78, 88, 94
+
+    # 4. Norm-Preserving Dynamic MoE Top-K Pruning (LLAMA_MOE_TOP_K)
+    if model.arch == "deepseek4":
+        moe_top_k = 0
+    elif model.is_moe and model.expert_used_count >= 6:
+        moe_top_k = 4
+    else:
+        moe_top_k = 0
+
+    disable_chunking = 1
+    use_repack = hw.has_avx512_vnni or hw.has_avx2
+    use_eakv = True
+
+    # Honor explicit user environment variable overrides BEFORE building hack descriptions
     def _env_int(name: str, default: int) -> int:
         val = os.environ.get(name)
         if val is not None and val.strip() != "":
@@ -648,7 +722,8 @@ def compute_modchip_profile(hw: HardwareInfo, model: GGUFModelInfo, swa_override
         return default
 
     l3_window = _env_int("LLAMA_KV_L3_WINDOW", l3_window)
-    attn_window = _env_int("LLAMA_ATTN_WINDOW", attn_window)
+    if model.arch != "deepseek4":
+        attn_window = _env_int("LLAMA_ATTN_WINDOW", attn_window)
     attn_sinks = _env_int("LLAMA_ATTN_SINKS", attn_sinks)
     swa_stride = _env_int("LLAMA_SWA_STRIDE", swa_stride)
     disable_chunking = _env_int(
@@ -659,7 +734,22 @@ def compute_modchip_profile(hw: HardwareInfo, model: GGUFModelInfo, swa_override
         rc_enabled = 0
     else:
         rc_enabled = _env_int("LLAMA_RC_ENABLED", rc_enabled)
-    moe_top_k = _env_int("LLAMA_MOE_TOP_K", moe_top_k)
+    if model.arch != "deepseek4":
+        moe_top_k = _env_int("LLAMA_MOE_TOP_K", moe_top_k)
+
+    hacks = _build_hacks_list(
+        hw=hw,
+        model=model,
+        l3_window=l3_window,
+        attn_window=attn_window,
+        attn_sinks=attn_sinks,
+        swa_stride=swa_stride,
+        disable_chunking=disable_chunking,
+        rc_enabled=rc_enabled,
+        moe_top_k=moe_top_k,
+        use_repack=use_repack,
+        use_eakv=use_eakv,
+    )
 
     return ModchipProfile(
         hw=hw,
@@ -678,6 +768,69 @@ def compute_modchip_profile(hw: HardwareInfo, model: GGUFModelInfo, swa_override
         use_eakv=use_eakv,
         hacks=hacks,
     )
+
+
+def read_modchip_shm(shm_path: str = SHM_PATH) -> Optional[Dict[str, int]]:
+    """Reads an existing live Modchip SHM block owned by the current user, if present."""
+    uid = os.getuid()
+    fmt = "<IIiiiiiiiiii"
+    expected_sz = struct.calcsize(fmt)
+    for target in get_shm_paths(shm_path):
+        if not os.path.exists(target):
+            continue
+        fd = -1
+        try:
+            fd = os.open(target, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+            st = os.fstat(fd)
+            if not stat.S_ISREG(st.st_mode) or st.st_uid != uid or st.st_size != expected_sz:
+                continue
+            raw = os.read(fd, expected_sz)
+            if len(raw) != expected_sz:
+                continue
+            vals = struct.unpack(fmt, raw)
+            if vals[0] != SHM_MAGIC or vals[1] != SHM_VERSION:
+                continue
+            return {
+                "path": target,
+                "l3_window": vals[2],
+                "attn_window": vals[3],
+                "attn_sinks": vals[4],
+                "swa_stride": vals[5],
+                "disable_chunking": vals[6],
+                "rc_enabled": vals[7],
+                "rc_cert_d0": vals[8],
+                "rc_cert_d1": vals[9],
+                "rc_cert_d2": vals[10],
+                "moe_top_k": vals[11],
+            }
+        except OSError:
+            continue
+        finally:
+            if fd >= 0:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+    return None
+
+
+def sync_profile_from_live_shm(prof: ModchipProfile, live: Dict[str, Any], swa_override: int = 0) -> None:
+    """Syncs live SHM fields into `prof` unless explicitly overridden in the current shell environment."""
+    if not os.environ.get("LLAMA_KV_L3_WINDOW", "").strip():
+        prof.l3_window = int(live["l3_window"])
+    if prof.model.arch != "deepseek4" and swa_override <= 0 and not os.environ.get("LLAMA_ATTN_WINDOW", "").strip():
+        prof.attn_window = int(live["attn_window"])
+    if not os.environ.get("LLAMA_ATTN_SINKS", "").strip():
+        prof.attn_sinks = int(live["attn_sinks"])
+    if not os.environ.get("LLAMA_SWA_STRIDE", "").strip():
+        prof.swa_stride = int(live["swa_stride"])
+    if not (os.environ.get("LLAMA_DISABLE_CHUNKING", "").strip() or os.environ.get("LLAMA_KV_DISABLE_CHUNKING", "").strip()):
+        prof.disable_chunking = int(live["disable_chunking"])
+    if not (os.environ.get("LLAMA_RC_DISABLE", "").strip() or os.environ.get("LLAMA_RC_ENABLED", "").strip()):
+        prof.rc_enabled = int(live["rc_enabled"])
+    if prof.model.arch != "deepseek4" and not os.environ.get("LLAMA_MOE_TOP_K", "").strip():
+        prof.moe_top_k = int(live["moe_top_k"])
+    refresh_profile_hacks(prof)
 
 
 def write_modchip_shm(prof: ModchipProfile, shm_path: str = SHM_PATH) -> List[str]:
@@ -819,7 +972,7 @@ def print_profile_report(prof: ModchipProfile) -> None:
     m = prof.model
     hw = prof.hw
     print("┌" + "─" * 98 + "┐")
-    print(f"│ {'llama-modchip v2.5.0 — CPU GGUF Hardware & Topology Profiler':<96} │")
+    print(f"│ {'llama-modchip v2.5.1 — CPU GGUF Hardware & Topology Profiler':<96} │")
     print("├" + "─" * 98 + "┤")
     print(f"│ [HARDWARE] CPU: {hw.cpu_model[:44]:<44} | CCDs: {hw.num_ccds}x{hw.l3_per_ccd_mb:.0f}MB L3 | RAM: {hw.ram_total_gib:.0f} GiB │")
     print(f"│ [ISA/THP]  Flags: {', '.join(hw.isa_flags):<42} | THP: {hw.thp_mode:<10} | Cores: {len(hw.physical_core_cpus):<6} │")
@@ -862,7 +1015,28 @@ def print_multi_model_audit(profiles: List[ModchipProfile]) -> None:
     print("=" * 116 + "\n")
 
 
-def _poll_live_telemetry(port: int = 8001) -> str:
+def _detect_default_port() -> int:
+    env_p = os.environ.get("SERVER_PORT", "").strip()
+    if env_p:
+        try:
+            return int(env_p)
+        except ValueError:
+            pass
+    repo_root = os.path.dirname(_SCRIPTS_DIR)
+    for pf in (
+        os.path.join(repo_root, "workspace", "run", "server_port"),
+        "./workspace/run/server_port",
+    ):
+        if os.path.isfile(pf):
+            try:
+                with open(pf, "r", encoding="utf-8") as f:
+                    return int(f.read().strip())
+            except (OSError, ValueError):
+                pass
+    return 8080
+
+
+def _poll_live_telemetry(port: int = 8080) -> str:
     """Reads live HugePages memory, SHM status, and llama-server /slots telemetry."""
     anon_hp_gib = 0.0
     try:
@@ -882,7 +1056,12 @@ def _poll_live_telemetry(port: int = 8001) -> str:
     except Exception:
         pass
 
-    shm_state = f"SYNCED ({os.path.getsize(SHM_PATH)}B)" if os.path.exists(SHM_PATH) else "NOT WRITTEN"
+    live_shm = read_modchip_shm()
+    if live_shm:
+        shm_state = f"SYNCED (WIN={live_shm['attn_window']}, TopK={live_shm['moe_top_k'] or 'nat'})"
+    else:
+        shm_state = "NOT WRITTEN"
+
     srv_str = f"llama-server(:{port}): OFFLINE"
     try:
         req = urllib.request.Request(f"http://127.0.0.1:{port}/slots")
@@ -892,18 +1071,21 @@ def _poll_live_telemetry(port: int = 8001) -> str:
                 s0 = slots[0]
                 is_proc = bool(s0.get("is_processing", False))
                 state_lbl = "GENERATING" if is_proc else "IDLE"
-                n_past = s0.get("n_past") or s0.get("n_prompt_tokens", 0)
+                nt = (s0.get("next_token") or [{}])[0] if isinstance(s0.get("next_token"), list) else {}
+                n_decoded = nt.get("n_decoded") or s0.get("n_decoded") or 0
+                n_past = s0.get("n_past") or nt.get("n_past") or s0.get("n_prompt_tokens", 0)
                 n_ctx = s0.get("n_ctx", 262144)
                 timings = s0.get("timings", {}) or {}
                 tps = timings.get("predicted_per_second", 0.0)
+                dec_tag = f" | out={n_decoded}t" if n_decoded else ""
                 if tps:
-                    srv_str = f"Slot0: {state_lbl} | KV: {n_past}/{n_ctx} tok | Speed: {tps:.1f} tok/s"
+                    srv_str = f"Slot0: {state_lbl} | KV: {n_past}/{n_ctx}{dec_tag} | {tps:.1f} tok/s"
                 else:
-                    srv_str = f"Slot0: {state_lbl} | KV: {n_past}/{n_ctx} tok"
+                    srv_str = f"Slot0: {state_lbl} | KV: {n_past}/{n_ctx}{dec_tag}"
     except Exception:
         pass
 
-    return f"[LIVE TELEMETRY] THP Allocated: {anon_hp_gib:.2f} GiB | SHM: {shm_state} | {srv_str}"
+    return f"[LIVE] THP: {anon_hp_gib:.2f} GiB | SHM: {shm_state} | {srv_str}"
 
 
 def _detect_bench_bin(user_bin: Optional[str] = None) -> Optional[str]:
@@ -953,7 +1135,7 @@ def run_ab_benchmark(prof: ModchipProfile, bench_bin: Optional[str] = None) -> i
     native_top_k = m.expert_used_count if m.is_moe else 0
 
     print("\n" + "=" * 100)
-    print(f" RUNNING 1-COMMAND A/B BENCHMARK: Stock Baseline vs. llama-modchip v2.5.0 ({m.filename})")
+    print(f" RUNNING 1-COMMAND A/B BENCHMARK: Stock Baseline vs. llama-modchip v2.5.1 ({m.filename})")
     print("=" * 100)
 
     # 1. Baseline (Stock FP16 KV, Native Top-K, No SWA, No SHM override)
@@ -1016,7 +1198,7 @@ def run_ab_benchmark(prof: ModchipProfile, bench_bin: Optional[str] = None) -> i
         print("| :--- | :---: | :---: | :--- |")
         print(f"| **Stock Baseline** | `{pp_a:.2f} tok/s` | `{tg_a:.2f} tok/s` | `Top-K={native_top_k or 'Dense'}`, `FP16 KV`, `No SWA` |")
         print(
-            f"| **`llama-modchip v2.5.0`** | **`{pp_b:.2f} tok/s` (`{pp_gain:+.1f}%`)** | "
+            f"| **`llama-modchip v2.5.1`** | **`{pp_b:.2f} tok/s` (`{pp_gain:+.1f}%`)** | "
             f"**`{tg_b:.2f} tok/s` (`{tg_gain:+.1f}%`)** | "
             f"`Top-K={prof.moe_top_k or native_top_k or 'Dense'}`, `SWA_STRIDE={prof.swa_stride}`, `L3_WIN={prof.l3_window}`, `Q8_0/{ctv.upper()}` |"
         )
@@ -1027,20 +1209,33 @@ def run_ab_benchmark(prof: ModchipProfile, bench_bin: Optional[str] = None) -> i
     return 0
 
 
-def run_tui(prof: ModchipProfile, port: int = 8001) -> None:
+def run_tui(prof: ModchipProfile, port: int = 8080) -> None:
+    kv_bpt = max(prof.model.kv_bytes_per_tok_q8q4, 256)
+    l3_budget_bytes = int(prof.hw.total_l3_bytes * 0.25)
+    raw_l3_tokens = l3_budget_bytes // kv_bpt
+    default_l3_win = (
+        min(2048, max(512, (raw_l3_tokens // 64) * 64))
+        if prof.model.is_hybrid_ssm
+        else min(4096, max(256, (raw_l3_tokens // 64) * 64))
+    )
+    if 0 < prof.l3_window < 262144:
+        default_l3_win = prof.l3_window
+    default_swa_win = prof.attn_window if prof.attn_window > 0 else 4096
+    default_pruned_topk = 4
+
     def _tui_main(stdscr):
         curses.curs_set(0)
         stdscr.timeout(1000)  # Refresh live telemetry every 1000ms
         stdscr.keypad(True)
-        idx = 0
-        status_msg = "Press [SPACE] to toggle/cycle hack, [A] to apply to /dev/shm/llama_modchip.bin, [Q] to quit."
+        idx = 7  # Highlight #8 Sliding Window Attention by default
+        status_msg = "[SPACE] toggle LIVE-SHM item (#2,#5,#6,#8,#9) | [A] sync to SHM | [Q] quit ([BOOT] = startup flag)"
 
         while True:
             stdscr.erase()
             h, w = stdscr.getmaxyx()
             m = prof.model
             hw = prof.hw
-            stdscr.addstr(0, 0, f"=== llama-modchip v2.5.0 (Live SHM TUI) == Target: {m.filename} ==="[:w - 1], curses.A_BOLD)
+            stdscr.addstr(0, 0, f"=== llama-modchip v2.5.1 (Live SHM TUI) == Target: {m.filename} ==="[:w - 1], curses.A_BOLD)
             stdscr.addstr(1, 0, f"CPU: {hw.cpu_model} ({hw.num_ccds}x{hw.l3_per_ccd_mb:.0f}MB L3) | Arch: {m.arch_summary}"[:w - 1])
             stdscr.addstr(2, 0, "-" * min(w - 1, 96))
 
@@ -1049,9 +1244,14 @@ def run_tui(prof: ModchipProfile, port: int = 8001) -> None:
                 if row + 1 >= h - 4:
                     break
                 attr = curses.A_REVERSE if i == idx else curses.A_NORMAL
-                state_str = "[ON] " if item.enabled else "[OFF]"
+                if item.safety == "LOCKED":
+                    state_str = "[LOCK]"
+                elif item.tier == "BOOT":
+                    state_str = "[BOOT]"
+                else:
+                    state_str = "[ON]  " if item.enabled else "[OFF] "
                 line1 = f" {state_str} {item.id}. {item.title} ({item.safety}) -> {item.value_str}"
-                line2 = f"          {item.reason}"
+                line2 = f"           {item.reason}"
                 stdscr.addstr(row, 0, line1[:w - 1], attr)
                 stdscr.addstr(row + 1, 0, line2[:w - 1])
 
@@ -1073,22 +1273,29 @@ def run_tui(prof: ModchipProfile, port: int = 8001) -> None:
             elif ch == ord(" "):
                 sel = prof.hacks[idx]
                 if sel.safety == "LOCKED":
-                    status_msg = f"SAFETY LOCK: '{sel.title}' cannot be enabled on {m.arch}!"
+                    status_msg = f"SAFETY LOCK: '{sel.title}' cannot be modified on {m.arch}!"
+                elif sel.tier == "BOOT":
+                    status_msg = f"BOOT-TIME FLAG: '{sel.title}' is set at llama-server launch (live toggles: #2,#5,#6,#8,#9)."
                 else:
-                    sel.enabled = not sel.enabled
+                    new_on = not sel.enabled
                     if sel.key == "l3_isolation":
-                        prof.l3_window = prof.l3_window if sel.enabled else 262144
+                        prof.l3_window = default_l3_win if new_on else 262144
                     elif sel.key == "routecrack":
-                        prof.rc_enabled = 1 if sel.enabled else 0
+                        prof.rc_enabled = 1 if new_on else 0
                     elif sel.key == "hybrid_swa":
-                        prof.attn_window = 4096 if sel.enabled else 0
+                        prof.attn_window = default_swa_win if new_on else 0
+                    elif sel.key == "moe_pruning":
+                        prof.moe_top_k = default_pruned_topk if new_on else m.expert_used_count
                     elif sel.key == "ccd_pinning":
-                        prof.disable_chunking = 1 if sel.enabled else 0
-                    write_modchip_shm(prof)
-                    status_msg = f"Updated '{sel.title}' -> {'ON' if sel.enabled else 'OFF'} in {SHM_PATH}!"
+                        prof.disable_chunking = 1 if new_on else 0
+                    refresh_profile_hacks(prof)
+                    written = write_modchip_shm(prof)
+                    target_str = written[0] if written else SHM_PATH
+                    status_msg = f"Applied live update: #{sel.id} -> {'ON' if prof.hacks[idx].enabled else 'OFF'} ({target_str})"
             elif ch in (ord("a"), ord("A")):
-                write_modchip_shm(prof)
-                status_msg = f"Saved live configuration to {SHM_PATH} ({ os.path.getsize(SHM_PATH) } bytes)."
+                written = write_modchip_shm(prof)
+                target_str = ", ".join(written) if written else SHM_PATH
+                status_msg = f"Synced live configuration to {target_str}."
 
     curses.wrapper(_tui_main)
 
@@ -1101,7 +1308,7 @@ def main() -> int:
     parser.add_argument("--print-cmd", action="store_true", help="Print the optimal llama-server launch command")
     parser.add_argument("--bench", action="store_true", help="Run 1-command A/B benchmark (Stock vs llama-modchip) via llama-bench")
     parser.add_argument("--bench-bin", type=str, default=None, help="Optional path to llama-bench binary for --bench")
-    default_port = int(os.environ.get("SERVER_PORT", "8789"))
+    default_port = _detect_default_port()
     parser.add_argument("--port", type=int, default=default_port, help=f"llama-server port for --print-cmd and --tui live telemetry (default: {default_port})")
     parser.add_argument("--swa", type=int, default=0, help="Opt-in approximate Sliding Window Attention size in tokens (default: 0 = full exact attention)")
     parser.add_argument("--json", action="store_true", help="Output profile as JSON")
@@ -1129,6 +1336,11 @@ def main() -> int:
 
     info = inspect_gguf(args.model)
     prof = compute_modchip_profile(hw, info, swa_override=args.swa)
+
+    if args.tui and not args.apply_shm:
+        live_shm = read_modchip_shm()
+        if live_shm is not None:
+            sync_profile_from_live_shm(prof, live_shm, swa_override=args.swa)
 
     written_shm: List[str] = []
     if args.apply_shm:
