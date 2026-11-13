@@ -108,7 +108,7 @@ function Get-Hw {
 }
 
 # Writes the 32-byte live MoE tunable block that the patched ggml-cpu reads
-# from %TEMP%\dsv4_moe_cfg.bin (int32 x 8: topk, topk, minw*10000, 3, 43, l2, 0, 0)
+# from per-user DSV4_MOE_CFG_PATH ($LOCALAPPDATA\llama-modchip\dsv4_moe_cfg.bin; int32 x 8: topk, topk, minw*10000, 3, 43, l2, 0, 0)
 function Set-MoeConfig([int]$TopK, [double]$MinW) {
     try {
         $bytes = New-Object byte[] 32
@@ -120,7 +120,9 @@ function Set-MoeConfig([int]$TopK, [double]$MinW) {
         [BitConverter]::GetBytes([int32]1).CopyTo($bytes, 20)
         [BitConverter]::GetBytes([int32]0).CopyTo($bytes, 24)
         [BitConverter]::GetBytes([int32]0).CopyTo($bytes, 28)
-        $path = Join-Path ([System.IO.Path]::GetTempPath()) "dsv4_moe_cfg.bin"
+        $cfgBase = if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA "llama-modchip" } else { Join-Path $ScriptDir "run" }
+        New-Item -ItemType Directory -Path $cfgBase -Force | Out-Null
+        $path = Join-Path $cfgBase "dsv4_moe_cfg.bin"
         $fs = New-Object System.IO.FileStream($path, [System.IO.FileMode]::OpenOrCreate, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::ReadWrite)
         try {
             $fs.SetLength(0)
@@ -141,7 +143,7 @@ $modelInfo = Get-Item -LiteralPath $modelPath
 $modelGB = [math]::Round($modelInfo.Length / 1GB, 2)
 $patched = $exe -like "*bin-modchip*" -or $exe -like "*build-mingw*"
 
-Write-Head "llama-modchip v2.5.2 -- DeepSeek-V4-Flash (MaxQ-Fractal / VQ3-64 / Fractal-64) on Windows"
+Write-Head "llama-modchip v2.5.3 -- DeepSeek-V4-Flash (MaxQ-Fractal / VQ3-64 / Fractal-64) on Windows"
 
 if ($Threads -le 0) { $Threads = [math]::Max(1, $hw.PhysCores) }
 
@@ -183,12 +185,13 @@ if ($hw.RamFreeGB -lt $needFree) {
 }
 
 $cfgPath = Set-MoeConfig -TopK $MoeTopK -MinW $MoeMinW
+if ($cfgPath) { $env:DSV4_MOE_CFG_PATH = $cfgPath }
 
 # Modchip env knobs consumed by the patched engine.
 # NOTE: DSV4_MOE_TOPK / LLAMA_MOE_TOP_K must NOT be exported: during model load the patch
 # derives the ffn_gate_tid2eid tensor shape from that value, and this GGUF is built for Top-K 6.
 # Any other value aborts the load ("expected 4, 129280, got 6, 129280"). Top-K pruning is applied
-# live through %TEMP%\dsv4_moe_cfg.bin instead, which the compute path reads on every graph.
+# live through per-user $env:DSV4_MOE_CFG_PATH instead, which the compute path reads on every graph.
 $env:LLAMA_KV_L3_WINDOW = "2048"
 $env:LLAMA_ATTN_WINDOW   = "0"      # 0 = full exact attention (SWA off)
 $env:LLAMA_ATTN_SINKS    = "16"

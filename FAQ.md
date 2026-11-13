@@ -88,7 +88,7 @@ While our baseline numbers are measured on a dual-channel DDR5 Ryzen 9 9955HX (`
 Yes. **Nemotron 3.5 30B-A3B** works well with **Tensor-Role Offloading** (`--n-cpu-moe` / `-ot`) on 8–16 GB GPUs:
 
 1. **Always-Active Backbone + Full 256K State on GPU (`~3.8 GB` VRAM)**:
-   Out of the `17.59 GiB` (`18.89 GB`) `Q4_0` model, **~15.5 GB** consists of the 128 sparse routed MoE experts across the 23 MoE layers (`blk.*.ffn_*_exps.weight`), of which only 4–6 out of 128 are touched per token. All tensors executed on **100% of tokens** across the 52-block stack—all 23 Mamba-2 SSM layers (`ssm_in`, `ssm_conv1d`, `ssm_out`), all 6 GQA Attention Q/K/V/O projections, Shared FFN Experts (`ffn_*_shexp`), MoE router gates (`ffn_gate_inp`), `output.weight`, and the **432 MB 256K KV + Mamba-2 state**—fit inside **< 4.0 GB of VRAM**.
+   Out of the `17.60 GiB` (`18.90 GB`) `Q4_0` model, **~15.5 GB** consists of the 128 sparse routed MoE experts across the 23 MoE layers (`blk.*.ffn_*_exps.weight`), of which only 4–6 out of 128 are touched per token. All tensors executed on **100% of tokens** across the 52-block stack—all 23 Mamba-2 SSM layers (`ssm_in`, `ssm_conv1d`, `ssm_out`), all 6 GQA Attention Q/K/V/O projections, Shared FFN Experts (`ffn_*_shexp`), MoE router gates (`ffn_gate_inp`), `output.weight`, and the **432 MB 256K KV + Mamba-2 state**—fit inside **< 4.0 GB of VRAM**.
 2. **Sparse Routed MoE Experts on CPU (`~15.5 GB` System DDR5)**:
    ```bash
    llama-server -m NVIDIA-Nemotron-3.5-Lightning-30B-A3B-Q4_0.gguf \
@@ -97,11 +97,11 @@ Yes. **Nemotron 3.5 30B-A3B** works well with **Tensor-Role Offloading** (`--n-c
    keeps sparse routed experts in system DDR5 RAM while only small activation vectors (`2,688` floats $\approx 10.7\text{ KB}$) cross PCIe per layer.
 3. **Verified AMD Vulkan/RADV Community Benchmark (`Ryzen 9 7945HX3D` + `Radeon RX 9070 XT 16GB`)**:
    - **`Fractal-MXFP4` (`15.95 GiB` file / `~15.2 GB` active)**: **`75.1 tok/s` (new code) / `80.8 tok/s` (refactor)** at `256K` context (`--n-cpu-moe 30`).
-   - **`Q4_0` (`17.59 GiB`)**: **`69.7 tok/s` (new code) / `76.2 tok/s` (refactor)**.
+   - **`Q4_0` (`17.60 GiB`)**: **`69.7 tok/s` (new code) / `76.2 tok/s` (refactor)**.
    - **`Fractal-64` (`Q2_0 = 42`, `14.36 GiB`, Pure CPU)**: **`44.2 tok/s` (new code) / `45.1 tok/s` (refactor)** on pure CPU.
 4. **Backend Compatibility for Custom Quantization Formats (`MXFP4` vs `Fractal-64` vs `LUT-VQ3-64`)**:
    > [!IMPORTANT]
-   > - **For Vulkan or CUDA GPU+CPU Hybrids**: Use **`Fractal-MXFP4` (`15.95 GiB`)** or **`Q4_0` (`17.59 GiB`)** — both have native Vulkan and CUDA compute shaders plus fast CPU kernels.
+   > - **For Vulkan or CUDA GPU+CPU Hybrids**: Use **`Fractal-MXFP4` (`15.95 GiB`)** or **`Q4_0` (`17.60 GiB`)** — both have native Vulkan and CUDA compute shaders plus fast CPU kernels.
    > - **For Apple Silicon Metal**: Use **`Fractal-64` (`GGML_TYPE_Q2_0 = 42`, `14.36 GiB` / `56.57 GiB`)** or **`Q4_0`** — `patches/apple-silicon/` and `patches/nemotron-apple-silicon/` ([PR #24](https://github.com/synchopate/llama-modchip/pull/24)) provide native Metal fast-decode shaders for `Q2_0` (`57.65 tok/s` M1 Max, `78.60 tok/s` M3 Max, `72.5 tok/s` M4 Max).
    > - **For x86-64 Pure CPU**: Use **`LUT-VQ3-64` (`GGML_TYPE_VQ3_0 = 43`, `13.30 GiB` / `56.40 GiB`)** on AVX-512 VBMI CPUs (Zen 4/5, Ice Lake+) for lowest RAM footprint, or **`Fractal-64` (`Q2_0 = 42`)** on AVX2-only CPUs. Neither `Q2_0` nor `VQ3_0` has a Vulkan/CUDA GPU shader yet.
 
@@ -110,7 +110,7 @@ Yes. **Nemotron 3.5 30B-A3B** works well with **Tensor-Role Offloading** (`--n-c
 ## Q9: How does `scripts/llama_modchip.py` generalize across GGUF models, and why does `LLAMA_MOE_TOP_K=4` work while `Top-K=2` fails?
 
 1. **Runtime Profiler & Controller (`scripts/llama_modchip.py`)**:
-   [`scripts/llama_modchip.py`](scripts/llama_modchip.py) parses any `.gguf` binary header in `< 5 ms`, detects whether the model is a **Hybrid SSM+GQA** (`ssm_layers > 0`) or a **Pure GQA Transformer** (`ssm_layers == 0`) and whether it is a **Sparse MoE** (`expert_count > 1`) or **Dense**, sizes `LLAMA_KV_L3_WINDOW` dynamically so hot KV occupies $\le 25\%$ of L3 cache, applies architecture safety locks (`LLAMA_SWA_STRIDE=4` on Pure GQA; locking MoE Top-K pruning on Dense models; skipping `LLAMA_MOE_TOP_K` env export on `deepseek4` hash-routed layers), and writes live runtime controls to `/dev/shm/llama_modchip.bin`.
+   [`scripts/llama_modchip.py`](scripts/llama_modchip.py) parses any `.gguf` binary header in `< 5 ms`, detects whether the model is a **Hybrid SSM+GQA** (`ssm_layers > 0`) or a **Pure GQA Transformer** (`ssm_layers == 0`) and whether it is a **Sparse MoE** (`expert_count > 1`) or **Dense**, sizes `LLAMA_KV_L3_WINDOW` dynamically so hot KV occupies $\le 25\%$ of L3 cache, applies architecture safety locks (`LLAMA_SWA_STRIDE=4` on Pure GQA; locking MoE Top-K pruning on Dense models; skipping `LLAMA_MOE_TOP_K` env export on `deepseek4` hash-routed layers), and writes `0600` live runtime controls to per-UID `/dev/shm/llama_modchip_<uid>.bin` (`$XDG_RUNTIME_DIR/llama_modchip.bin`).
 2. **Why `LLAMA_MOE_TOP_K=4` (`6->4` / `8->4`) Succeeds While `Top-K=2` Fails**:
    - In `Nemotron-3.5-30B-A3B`, the model activates `6` routed experts (`ffn=1856`) + `1` double-width shared expert (`ffn=3712` = 2 expert-units) with `expert_weights_norm = True` and `expert_weights_scale = 2.5`. Pruning routed experts from `6 -> 4` cuts **33.3% of routed MoE DRAM bandwidth** while renormalizing the surviving 4 gates ($\sum_{i=1}^4 g_i = 2.5$).
    - On `Qwen3-30B-A3B` (`8 -> 4` routed experts, `norm_w = true` in `src/models/qwen3moe.cpp`), `LLAMA_MOE_TOP_K=4` cuts **50% of routed MoE DRAM traffic**, boosting non-speculative `tg64` decode from **`25.12` to `34.80 tok/s` (`+38.5%`)**.
@@ -167,8 +167,8 @@ See **[`speculative/ROUTECRACK_TECHNIQUES.md`](speculative/ROUTECRACK_TECHNIQUES
 Applying the **single-token ($N=1$, GEMV) bandwidth formula** (`Throughput × ActiveBytesPerToken`) to **batched prompt prefill ($N=512$, GEMM)** or **multi-token speculative verification ($N=8$)**, or assuming all `284.33B` weights in `DeepSeek-V4-Flash` use a uniform bitrate, leads to misleading estimates:
 
 1. **Why `241.0–306.8 tok/s` Prompt Prefill Uses `~10.8 GB/s` of DDR5 Bandwidth (GEMM vs. GEMV)**:
-   - During **Prompt Prefill (`-ub 512 -b 2048`)**, `llama.cpp` executes **batched Matrix-Matrix multiplications (GEMM)** across $B = 512$ tokens simultaneously. Even if every expert in the `17.59 GiB` model is touched once during a 512-token micro-batch, weights are streamed from DDR5 **once per 512 tokens**:
-     $$\text{DDR5 Read per Prefill Token} \le \frac{17.59\text{ GiB}}{512\text{ tokens}} \approx 35.2\text{ MB/token} \implies 306.8\text{ tok/s} \times 35.2\text{ MB} \approx \mathbf{10.8\text{ GB/s}}$$
+   - During **Prompt Prefill (`-ub 512 -b 2048`)**, `llama.cpp` executes **batched Matrix-Matrix multiplications (GEMM)** across $B = 512$ tokens simultaneously. Even if every expert in the `17.60 GiB` model is touched once during a 512-token micro-batch, weights are streamed from DDR5 **once per 512 tokens**:
+     $$\text{DDR5 Read per Prefill Token} \le \frac{17.60\text{ GiB}}{512\text{ tokens}} \approx 35.2\text{ MB/token} \implies 306.8\text{ tok/s} \times 35.2\text{ MB} \approx \mathbf{10.8\text{ GB/s}}$$
    - At $B = 512$, arithmetic intensity rises from $I \approx 1\text{ FLOP/byte}$ (GEMV) to **$I > 160\text{ FLOPs/byte}$ (GEMM)**: prefill is compute-bound on AVX-512 cores, not DDR5 bandwidth-bound (`386.00 tok/s` on Threadripper 7985WX, [#1](https://github.com/synchopate/llama-modchip/issues/1); `101.67 tok/s` on 8-vCPU Graviton3, [#2](https://github.com/synchopate/llama-modchip/issues/2)).
 
 2. **Why `48.39 tok/s` Avg / `60.40 tok/s` Peak Speculative Decode Uses `~45–52 GB/s` of DDR5 Bandwidth**:

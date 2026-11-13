@@ -4,15 +4,15 @@ llama_modchip.py — Hardware & GGUF Auto-Profiler for CPU LLM Inference
 ======================================================================
 Inspects any GGUF model header + Linux CPU/Cache/RAM topology in <5ms,
 computes safety-locked microarchitectural profiles, writes live
-runtime overrides to /dev/shm/llama_modchip.bin, and provides an
-interactive Curses TUI or CLI launcher.
+runtime overrides to per-UID shared memory (/dev/shm/llama_modchip_<uid>.bin),
+and provides an interactive Curses TUI or CLI launcher.
 
 Supported Modes:
   1. Single-model dashboard & live SHM writer:
        python3 scripts/llama_modchip.py --model /path/to/model.gguf [--apply-shm] [--print-cmd]
   2. Multi-model comparative audit across multiple GGUF architectures:
        python3 scripts/llama_modchip.py --audit model1.gguf model2.gguf ...
-  3. Interactive Curses TUI (toggle settings live in /dev/shm/llama_modchip.bin):
+  3. Interactive Curses TUI (toggle settings live in per-UID SHM):
        python3 scripts/llama_modchip.py --model /path/to/model.gguf --tui
 """
 
@@ -45,16 +45,22 @@ from _cpu_topology import (  # noqa: E402
     parse_cpu_list,
 )
 
-SHM_PATH = "/dev/shm/llama_modchip.bin"
+_EUID = getattr(os, "geteuid", getattr(os, "getuid", lambda: 0))()
+SHM_PATH = f"/dev/shm/llama_modchip_{_EUID}.bin"
 SHM_MAGIC = 0x4D4F4443  # "MODC"
 SHM_VERSION = 1
 
 
 def get_shm_paths(primary_path: str = SHM_PATH) -> List[str]:
-    paths = []
+    paths: List[str] = []
+    custom = os.environ.get("MODCHIP_SHM_PATH", "").strip()
+    if custom:
+        paths.append(custom)
     xdg = os.environ.get("XDG_RUNTIME_DIR", "").strip()
     if xdg and os.path.isdir(xdg) and os.access(xdg, os.W_OK):
-        paths.append(os.path.join(xdg, "llama_modchip.bin"))
+        p = os.path.join(xdg, "llama_modchip.bin")
+        if p not in paths:
+            paths.append(p)
     if primary_path not in paths:
         paths.append(primary_path)
     return paths
@@ -769,7 +775,7 @@ def compute_modchip_profile(hw: HardwareInfo, model: GGUFModelInfo, swa_override
 
 def read_modchip_shm(shm_path: str = SHM_PATH) -> Optional[Dict[str, int]]:
     """Reads an existing live Modchip SHM block owned by the current user, if present."""
-    uid = os.getuid()
+    uid = _EUID
     fmt = "<IIiiiiiiiiii"
     expected_sz = struct.calcsize(fmt)
     for target in get_shm_paths(shm_path):
@@ -779,7 +785,12 @@ def read_modchip_shm(shm_path: str = SHM_PATH) -> Optional[Dict[str, int]]:
         try:
             fd = os.open(target, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
             st = os.fstat(fd)
-            if not stat.S_ISREG(st.st_mode) or st.st_uid != uid or st.st_size != expected_sz:
+            if (
+                not stat.S_ISREG(st.st_mode)
+                or st.st_uid != uid
+                or (st.st_mode & 0o022) != 0
+                or st.st_size != expected_sz
+            ):
                 continue
             raw = os.read(fd, expected_sz)
             if len(raw) != expected_sz:
@@ -854,7 +865,7 @@ def write_modchip_shm(prof: ModchipProfile, shm_path: str = SHM_PATH) -> List[st
     )
     written: List[str] = []
     open_flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
-    uid = os.getuid()
+    uid = _EUID
 
     for target in get_shm_paths(shm_path):
         parent = os.path.dirname(target) or "/dev/shm"
@@ -969,7 +980,7 @@ def print_profile_report(prof: ModchipProfile) -> None:
     m = prof.model
     hw = prof.hw
     print("┌" + "─" * 98 + "┐")
-    print(f"│ {'llama-modchip v2.5.1 — CPU GGUF Hardware & Topology Profiler':<96} │")
+    print(f"│ {'llama-modchip v2.5.3 — CPU GGUF Hardware & Topology Profiler':<96} │")
     print("├" + "─" * 98 + "┤")
     print(f"│ [HARDWARE] CPU: {hw.cpu_model[:44]:<44} | CCDs: {hw.num_ccds}x{hw.l3_per_ccd_mb:.0f}MB L3 | RAM: {hw.ram_total_gib:.0f} GiB │")
     print(f"│ [ISA/THP]  Flags: {', '.join(hw.isa_flags):<42} | THP: {hw.thp_mode:<10} | Cores: {len(hw.physical_core_cpus):<6} │")
@@ -1132,15 +1143,16 @@ def run_ab_benchmark(prof: ModchipProfile, bench_bin: Optional[str] = None) -> i
     native_top_k = m.expert_used_count if m.is_moe else 0
 
     print("\n" + "=" * 100)
-    print(f" RUNNING 1-COMMAND A/B BENCHMARK: Stock Baseline vs. llama-modchip v2.5.1 ({m.filename})")
+    print(f" RUNNING 1-COMMAND A/B BENCHMARK: Stock Baseline vs. llama-modchip v2.5.3 ({m.filename})")
     print("=" * 100)
 
     # 1. Baseline (Stock FP16 KV, Native Top-K, No SWA, No SHM override)
-    if os.path.exists(SHM_PATH):
-        try:
-            os.remove(SHM_PATH)
-        except OSError:
-            pass
+    for _shm_candidate in get_shm_paths(SHM_PATH):
+        if os.path.exists(_shm_candidate):
+            try:
+                os.remove(_shm_candidate)
+            except OSError:
+                pass
     base_env = os.environ.copy()
     base_env["LLAMA_ATTN_WINDOW"] = "0"
     base_env["LLAMA_SWA_STRIDE"] = "1"
@@ -1195,7 +1207,7 @@ def run_ab_benchmark(prof: ModchipProfile, bench_bin: Optional[str] = None) -> i
         print("| :--- | :---: | :---: | :--- |")
         print(f"| **Stock Baseline** | `{pp_a:.2f} tok/s` | `{tg_a:.2f} tok/s` | `Top-K={native_top_k or 'Dense'}`, `FP16 KV`, `No SWA` |")
         print(
-            f"| **`llama-modchip v2.5.1`** | **`{pp_b:.2f} tok/s` (`{pp_gain:+.1f}%`)** | "
+            f"| **`llama-modchip v2.5.3`** | **`{pp_b:.2f} tok/s` (`{pp_gain:+.1f}%`)** | "
             f"**`{tg_b:.2f} tok/s` (`{tg_gain:+.1f}%`)** | "
             f"`Top-K={prof.moe_top_k or native_top_k or 'Dense'}`, `SWA_STRIDE={prof.swa_stride}`, `L3_WIN={prof.l3_window}`, `Q8_0/{ctv.upper()}` |"
         )
@@ -1232,7 +1244,7 @@ def run_tui(prof: ModchipProfile, port: int = 8080) -> None:
             h, w = stdscr.getmaxyx()
             m = prof.model
             hw = prof.hw
-            stdscr.addstr(0, 0, f"=== llama-modchip v2.5.1 (Live SHM TUI) == Target: {m.filename} ==="[:w - 1], curses.A_BOLD)
+            stdscr.addstr(0, 0, f"=== llama-modchip v2.5.3 (Live SHM TUI) == Target: {m.filename} ==="[:w - 1], curses.A_BOLD)
             stdscr.addstr(1, 0, f"CPU: {hw.cpu_model} ({hw.num_ccds}x{hw.l3_per_ccd_mb:.0f}MB L3) | Arch: {m.arch_summary}"[:w - 1])
             stdscr.addstr(2, 0, "-" * min(w - 1, 96))
 
@@ -1301,7 +1313,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Hardware & GGUF Auto-Profiler for CPU LLM Inference")
     parser.add_argument("--model", "-m", type=str, help="Path to target GGUF model")
     parser.add_argument("--audit", nargs="+", help="Audit and compare multiple GGUF models")
-    parser.add_argument("--apply-shm", action="store_true", help="Write live config struct to /dev/shm/llama_modchip.bin")
+    parser.add_argument("--apply-shm", action="store_true", help="Write live config struct to per-UID shared memory (/dev/shm/llama_modchip_<uid>.bin)")
     parser.add_argument("--print-cmd", action="store_true", help="Print the optimal llama-server launch command")
     parser.add_argument("--bench", action="store_true", help="Run 1-command A/B benchmark (Stock vs llama-modchip) via llama-bench")
     parser.add_argument("--bench-bin", type=str, default=None, help="Optional path to llama-bench binary for --bench")

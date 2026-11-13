@@ -1,6 +1,6 @@
-# llama-modchip on Windows — Porting Notes & Benchmarks (`v2.5.2`)
+# llama-modchip on Windows — Porting Notes & Benchmarks (`v2.5.3`)
 
-**Project:** `llama-modchip` `v2.5.2` (`DeepSeek-V4-Flash-0731` `MaxQ-Fractal` `56.93 GiB`, `VQ3-64` `56.40 GiB`, `Fractal-64` `56.57 GiB`, & `Abliterated-Fractal` `56.93 GiB`, plus `Nemotron-3.5-30B-A3B` `VQ3-64` `13.30 GiB`, `Fractal-64` `14.36 GiB`, & `Abliterated-VQ3-64` `13.30 GiB`)
+**Project:** `llama-modchip` `v2.5.3` (`DeepSeek-V4-Flash-0731` `MaxQ-Fractal` `56.93 GiB`, `VQ3-64` `56.40 GiB`, `Fractal-64` `56.57 GiB`, & `Abliterated-Fractal` `56.93 GiB`, plus `Nemotron-3.5-30B-A3B` `VQ3-64` `13.30 GiB`, `Fractal-64` `14.36 GiB`, & `Abliterated-VQ3-64` `13.30 GiB`)
 **Test machine:** AMD Ryzen 7 9800X3D (8C/16T, 96 MB L3) · 64 GB DDR5 · NVIDIA RTX 4070 Ti 12 GB · NVMe PCIe 5.0
 **OS:** Windows 11 Pro · engine built with MinGW-w64 GCC (UCRT64) + CMake + Ninja, `-march=native` (AVX-512F/BW/VBMI/VNNI/BF16)
 **Original Port & 1M-Context Verification:** [`@MR1KRAKEN`](https://github.com/MR1KRAKEN) ([PR #27](https://github.com/synchopate/llama-modchip/pull/27), [Issue #28](https://github.com/synchopate/llama-modchip/issues/28)); x64 AVX-512 ABI & `VQ3_0` update in `commit 54c89bf` ([Issue #31](https://github.com/synchopate/llama-modchip/issues/31))
@@ -20,13 +20,13 @@ E llama_model_load: error loading model: check_tensor_dims: tensor 'blk.0.attn_k
 
 ## 2. What had to change for Windows
 
-The shipped POSIX scripts (`install.sh`, `modchip`, `scripts/build_zen5_llama.sh`) rely on Linux/macOS APIs (`taskset`, `/dev/shm/llama_modchip.bin`, `sys/mman.h`), and GCC/MinGW-w64 on Windows x64 differs from Linux System V AMD64 in both ABI register preservation and PE/COFF `.rdata` alignment.
+The shipped POSIX scripts (`install.sh`, `modchip`, `scripts/build_zen5_llama.sh`) rely on Linux/macOS APIs (`taskset`, `/dev/shm/llama_modchip_<uid>.bin`, `sys/mman.h`), and GCC/MinGW-w64 on Windows x64 differs from Linux System V AMD64 in both ABI register preservation and PE/COFF `.rdata` alignment.
 
-Five source and toolchain fixes are handled by `windows\build_patched_engine.ps1` and `patches/lut-vq3-64-avx512-vbmi.patch`:
+Five source and toolchain fixes are handled by `windows\build_patched_engine.ps1`, `patches/dsv4-ipc-hardening.patch`, and `patches/lut-vq3-64-avx512-vbmi.patch`:
 
 | # | File | Problem | Fix |
 | :-- | :--- | :--- | :--- |
-| 1 | `ggml/src/ggml-cpu/ops.cpp` | `#include <sys/mman.h>` + `open("/dev/shm/llama_modchip.bin")` with no platform guard | Wrapped in `#ifndef _WIN32`; on Windows the attention policy comes from env (`LLAMA_ATTN_WINDOW`, `LLAMA_ATTN_SINKS`, `LLAMA_KV_L3_WINDOW`) |
+| 1 | `ggml/src/ggml-cpu/ops.cpp` | `#include <sys/mman.h>` + POSIX `/dev/shm` block | Guarded by `#if defined(__linux__)`; on Windows the attention policy comes from env (`LLAMA_ATTN_WINDOW`, `LLAMA_ATTN_SINKS`, `LLAMA_KV_L3_WINDOW`) |
 | 2 | `ggml/src/ggml-cpu/ggml-cpu.c` | `__thread` and `__attribute__((aligned(64)))` are GCC-only | `MC_TLS` = `__declspec(thread)`; buffer aligned with `__declspec(align(64))` under `_MSC_VER` |
 | 3 | `ggml/src/ggml-cpu/arch/x86/quants.c` | `__builtin_ctz(m)` inside the AVX-512 path | MSVC path uses `_BitScanForward` (`mc_ctz32`) |
 | 4 | `src/llama-graph.cpp` | `ggml_dsv4_skip_csa_comp` is defined in a C file but referenced from C++ | C linkage declared under `_MSC_VER`; MinGW behaviour unchanged |
@@ -48,7 +48,7 @@ powershell -ExecutionPolicy Bypass -File windows\build_patched_engine.ps1 -Targe
 powershell -ExecutionPolicy Bypass -File windows\build_patched_engine.ps1 -Target dsv4 -Cuda
 ```
 
-The script clones `ggml-org/llama.cpp` at **`d2f83055`**, applies `deepseek-v4-flash-fractal-256k.patch` (or `zen5-nemotron-256k-optimizations.patch` for `-Target nemotron`) followed by `lut-vq3-64-avx512-vbmi.patch` + `vq3_codebook.h`, copies the RouteCrack headers (`rc_predictor.h`, `rc_stockfish.h`, `rc_trie_v2.h`) into `common/`, applies the Windows portability guards, and builds a statically linked `windows/bin-modchip/llama-server.exe`.
+The script clones `ggml-org/llama.cpp` at **`d2f83055`**, applies `deepseek-v4-flash-fractal-256k.patch` + `dsv4-ipc-hardening.patch` (or `zen5-nemotron-256k-optimizations.patch` for `-Target nemotron`) followed by `lut-vq3-64-avx512-vbmi.patch` + `vq3_codebook.h`, copies the RouteCrack headers (`rc_predictor.h`, `rc_stockfish.h`, `rc_trie_v2.h`) into `common/`, applies the Windows portability guards, and builds a statically linked `windows/bin-modchip/llama-server.exe`.
 
 Key flags: `-DGGML_NATIVE=ON -DGGML_OPENMP=OFF -DBUILD_SHARED_LIBS=OFF -DCMAKE_EXE_LINKER_FLAGS="-static -Wl,--stack,16777216" -D_WIN32_WINNT=0x0A00`.
 
@@ -78,7 +78,7 @@ Net result: on a 12 GB card `DeepSeek-V4 284B` is faster on CPU alone. (For 30B/
 
 ## 6. Operational notes & pitfalls
 
-1. **Never set `DSV4_MOE_TOPK` / `LLAMA_MOE_TOP_K` in the environment for `DeepSeek-V4`.** During load the engine derives `ffn_gate_tid2eid` dimensions from that variable; because the GGUF stores 6 hash-routed experts, any other value aborts with `expected 4, 129280, got 6, 129280`. Drive runtime Top-K pruning exclusively through `%TEMP%\dsv4_moe_cfg.bin` (`modchip_dsv4.ps1 -Fast`).
+1. **Never set `DSV4_MOE_TOPK` / `LLAMA_MOE_TOP_K` in the environment for `DeepSeek-V4`.** During load the engine derives `ffn_gate_tid2eid` dimensions from that variable; because the GGUF stores 6 hash-routed experts, any other value aborts with `expected 4, 129280, got 6, 129280`. Drive runtime Top-K pruning exclusively through per-user `DSV4_MOE_CFG_PATH` (`$LOCALAPPDATA\llama-modchip\dsv4_moe_cfg.bin` via `modchip_dsv4.ps1 -Fast`).
 2. **Repetition penalties and DRY sampling:** Do **not** pass `--dry-sequence-breaker none` — DRY then penalizes repeated chat-template tokens and corrupts output. If enabling DRY, keep default sequence breakers (`--repeat-penalty 1.1 --repeat-last-n 256`).
 3. **Long-prompt prefill timeouts:** At ~15–22 tok/s prefill on 8 cores, a 6,000-token cold prompt takes several minutes before the first token. Raise HTTP client stream idle timeouts above 300 s, or pair `llama-server.exe` with `--slot-save-path` so recurring system/tool prefixes restore in milliseconds.
 4. **One server per port:** Context size and MoE placement are fixed at startup; changing presets requires restarting `llama-server.exe`.

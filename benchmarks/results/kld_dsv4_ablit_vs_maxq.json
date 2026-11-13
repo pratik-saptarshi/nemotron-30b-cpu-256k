@@ -1,15 +1,46 @@
 {
-  "timestamp": "2026-11-12T21:27:31+0000",
+  "timestamp": "2026-11-13T01:16:37+0000",
+  "label": "DeepSeek-V4-Flash-0731-Abliterated-Fractal",
+  "model": "DeepSeek-V4-Flash-0731-Abliterated-Fractal-00001-of-00003.gguf",
+  "model_sha256": "69b5bf614a56c119670b1b9535b71e46987e917928fbf09ac4631c3d202ef87f",
   "kld": {
-    "num_probes": 12,
-    "mean_kld_nats": 1.021914,
-    "equiv_ppl_delta_pct": 177.851,
-    "top1_agreement_pct": 58.33,
-    "top5_agreement_pct": 91.67,
+    "num_probes": 32,
+    "mean_kld_nats": 0.095935,
+    "equiv_ppl_delta_pct": 10.069,
+    "top1_agreement_pct": 75.0,
+    "top5_agreement_pct": 96.88,
+    "classic12_num_probes": 12,
+    "classic12_mean_kld_nats": 0.086671,
+    "prefix_matched_positions": 172,
+    "prefix_matched_mean_kld_nats": 0.051242,
+    "prefix_matched_equiv_ppl_delta_pct": 5.258,
+    "prefix_matched_top1_agreement_pct": 90.7,
+    "prefix_matched_top5_agreement_pct": 99.42,
+    "reference_model": {
+      "label": "DeepSeek-V4-Flash-0731-MaxQ-Fractal-v2.5.3",
+      "server_model_id": "/opt/models/deepseek-v4/lcc/DeepSeek-V4-Flash-0731-MaxQ-Fractal-00001-of-00003.gguf",
+      "model_file": "DeepSeek-V4-Flash-0731-MaxQ-Fractal-00001-of-00003.gguf",
+      "model_sha256": "0ae64076077f88f5750d7e78403bbf0304a386c86912a47655eb3aaf627d2ce4",
+      "num_probes": 32,
+      "steps_per_probe": 8,
+      "top_k": 64,
+      "timestamp": "2026-11-13T00:54:30+0000"
+    },
+    "candidate_model": {
+      "label": "DeepSeek-V4-Flash-0731-Abliterated-Fractal",
+      "server_model_id": "/opt/models/deepseek-v4/lcc/DeepSeek-V4-Flash-0731-Abliterated-Fractal-00001-of-00003.gguf",
+      "model_file": "DeepSeek-V4-Flash-0731-Abliterated-Fractal-00001-of-00003.gguf",
+      "model_sha256": "69b5bf614a56c119670b1b9535b71e46987e917928fbf09ac4631c3d202ef87f",
+      "num_probes": 32,
+      "steps_per_probe": 8,
+      "top_k": 64,
+      "timestamp": "2026-11-13T01:16:37+0000"
+    },
     "probes": [
       {
         "probe": "C_SIMD_Dot",
-        "kld_nats": 0.195123,
+        "kld_nats": 0.094042,
+        "matched_prefix_steps": 8,
         "ref_top1": " _",
         "cand_top1": " _",
         "top1_match": true,
@@ -17,7 +48,8 @@
       },
       {
         "probe": "Py_Async_Pool",
-        "kld_nats": 0.193147,
+        "kld_nats": 0.034293,
+        "matched_prefix_steps": 1,
         "ref_top1": " fn",
         "cand_top1": " #",
         "top1_match": false,
@@ -25,7 +57,8 @@
       },
       {
         "probe": "Py_LRU_Lock",
-        "kld_nats": 0.552676,
+        "kld_nats": 0.125494,
+        "matched_prefix_steps": 8,
         "ref_top1": " key",
         "cand_top1": " key",
         "top1_match": true,
@@ -33,15 +66,17 @@
       },
       {
         "probe": "SQL_Window_Rank",
-        "kld_nats": 0.932485,
-        "ref_top1": "3",
+        "kld_nats": 0.010261,
+        "matched_prefix_steps": 8,
+        "ref_top1": "10",
         "cand_top1": "10",
-        "top1_match": false,
+        "top1_match": true,
         "top5_match": true
       },
       {
         "probe": "Math_Euler_Totient",
-        "kld_nats": 0.156299,
+        "kld_nats": 0.005935,
+        "matched_prefix_steps": 8,
         "ref_top1": "8",
         "cand_top1": "8",
         "top1_match": true,
@@ -49,7 +84,8 @@
       },
       {
         "probe": "Systems_KV_Bandwidth",
-        "kld_nats": 1.65608,
+        "kld_nats": 0.004088,
+        "matched_prefix_steps": 8,
         "ref_top1": "612",
         "cand_top1": "612",
         "top1_match": true,
@@ -57,49 +93,235 @@
       },
       {
         "probe": "JSON_Tool_Schema",
-        "kld_nats": 3.750708,
-        "ref_top1": " \\\"",
+        "kld_nats": 0.112528,
+        "matched_prefix_steps": 1,
+        "ref_top1": "0",
         "cand_top1": "1",
         "top1_match": false,
         "top5_match": true
       },
       {
         "probe": "Rust_Lifetime_Slice",
-        "kld_nats": 1.066966,
-        "ref_top1": "if",
+        "kld_nats": 0.068662,
+        "matched_prefix_steps": 2,
+        "ref_top1": "0",
         "cand_top1": "0",
-        "top1_match": false,
-        "top5_match": true
-      },
-      {
-        "probe": "Linux_Proc_Meminfo",
-        "kld_nats": 0.844856,
-        "ref_top1": " (",
-        "cand_top1": " (",
         "top1_match": true,
         "top5_match": true
       },
       {
+        "probe": "Linux_Proc_Meminfo",
+        "kld_nats": 0.137121,
+        "matched_prefix_steps": 1,
+        "ref_top1": "47",
+        "cand_top1": " (",
+        "top1_match": false,
+        "top5_match": true
+      },
+      {
         "probe": "Quant_Lloyd_Max",
-        "kld_nats": 0.768396,
+        "kld_nats": 0.025691,
+        "matched_prefix_steps": 4,
+        "ref_top1": "8",
+        "cand_top1": "8",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "Algo_Dijkstra_Heap",
+        "kld_nats": 0.390467,
+        "matched_prefix_steps": 1,
+        "ref_top1": "?",
+        "cand_top1": "V",
+        "top1_match": false,
+        "top5_match": true
+      },
+      {
+        "probe": "HTTP_Chunked_Parser",
+        "kld_nats": 0.031472,
+        "matched_prefix_steps": 2,
+        "ref_top1": " smuggling",
+        "cand_top1": " smuggling",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "CPP_RingBuffer_Acquire",
+        "kld_nats": 3e-06,
+        "matched_prefix_steps": 8,
+        "ref_top1": "acqu",
+        "cand_top1": "acqu",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "Go_Context_Cancel",
+        "kld_nats": 0.208256,
+        "matched_prefix_steps": 1,
+        "ref_top1": "\u53d6\u6d88",
+        "cand_top1": " cancel",
+        "top1_match": false,
+        "top5_match": true
+      },
+      {
+        "probe": "SQL_Recursive_CTE",
+        "kld_nats": 0.015077,
+        "matched_prefix_steps": 8,
+        "ref_top1": " t",
+        "cand_top1": " t",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "Math_Geometric_Series",
+        "kld_nats": 0.00021,
+        "matched_prefix_steps": 8,
         "ref_top1": "1",
         "cand_top1": "1",
         "top1_match": true,
         "top5_match": true
       },
       {
-        "probe": "Algo_Dijkstra_Heap",
-        "kld_nats": 1.629113,
+        "probe": "Math_Eigen_Trace",
+        "kld_nats": 0.009204,
+        "matched_prefix_steps": 7,
+        "ref_top1": "28",
+        "cand_top1": "28",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "Py_Bisect_JobDP",
+        "kld_nats": 0.015976,
+        "matched_prefix_steps": 8,
+        "ref_top1": "1",
+        "cand_top1": "1",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "C_Mmap_Hugepage",
+        "kld_nats": 0.087494,
+        "matched_prefix_steps": 8,
+        "ref_top1": "1",
+        "cand_top1": "1",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "Rust_Iter_Fold",
+        "kld_nats": 0.002262,
+        "matched_prefix_steps": 8,
         "ref_top1": "0",
-        "cand_top1": " v",
+        "cand_top1": "0",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "JSON_Bash_ToolCall",
+        "kld_nats": 0.694699,
+        "matched_prefix_steps": 1,
+        "ref_top1": "600",
+        "cand_top1": "20",
         "top1_match": false,
         "top5_match": false
       },
       {
-        "probe": "HTTP_Chunked_Parser",
-        "kld_nats": 0.517124,
-        "ref_top1": " smuggling",
-        "cand_top1": " smuggling",
+        "probe": "POSIX_Open_NoFollow",
+        "kld_nats": 0.037533,
+        "matched_prefix_steps": 8,
+        "ref_top1": " `",
+        "cand_top1": " `",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "Numerical_LogSumExp",
+        "kld_nats": 0.081212,
+        "matched_prefix_steps": 8,
+        "ref_top1": " m",
+        "cand_top1": " m",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "Compiler_SSA_Phi",
+        "kld_nats": 0.110832,
+        "matched_prefix_steps": 1,
+        "ref_top1": " \\",
+        "cand_top1": "0",
+        "top1_match": false,
+        "top5_match": true
+      },
+      {
+        "probe": "TCP_Congestion_BBR",
+        "kld_nats": 0.425381,
+        "matched_prefix_steps": 1,
+        "ref_top1": "0",
+        "cand_top1": "\r",
+        "top1_match": false,
+        "top5_match": true
+      },
+      {
+        "probe": "Arch_AVX512_VBMI",
+        "kld_nats": 0.057701,
+        "matched_prefix_steps": 5,
+        "ref_top1": " instruction",
+        "cand_top1": " instruction",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "Py_Tarjan_Topo",
+        "kld_nats": 1.3e-05,
+        "matched_prefix_steps": 8,
+        "ref_top1": "2",
+        "cand_top1": "2",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "DB_MVCC_Snapshot",
+        "kld_nats": 0.132019,
+        "matched_prefix_steps": 8,
+        "ref_top1": " start",
+        "cand_top1": " start",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "Crypto_HMAC_ConstTime",
+        "kld_nats": 0.001364,
+        "matched_prefix_steps": 8,
+        "ref_top1": "hex",
+        "cand_top1": "hex",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "LLM_Mamba_State",
+        "kld_nats": 0.102164,
+        "matched_prefix_steps": 3,
+        "ref_top1": " size",
+        "cand_top1": " size",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "Bash_Trap_Cleanup",
+        "kld_nats": 0.005684,
+        "matched_prefix_steps": 5,
+        "ref_top1": "0",
+        "cand_top1": "0",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "Italian_Quant_Prose",
+        "kld_nats": 0.042785,
+        "matched_prefix_steps": 8,
+        "ref_top1": "rie",
+        "cand_top1": "rie",
         "top1_match": true,
         "top5_match": true
       }

@@ -18,7 +18,7 @@
 | Optimization Layer | Technique Implemented | Target Bottleneck Solved | Measured Gain (`Zen 5` / `Threadripper` / `Vulkan` / `Metal`) |
 | :--- | :--- | :--- | :--- |
 | **1. Quantization (`LUT-VQ3-64`)** | Block-64 3D Lloyd-Max Vector Quantizer (`GGML_TYPE_VQ3_0 = 43`, `24B / 64w = 3.00 bpw`) via AVX-512 VBMI `VPERMI2B` ([`scripts/build_nemotron_vq3.py`](../scripts/build_nemotron_vq3.py)) | Reduces MoE `up_exps` footprint by `-33.3%` vs `Q4_0` and `-20.0%` vs `Fractal-64` without scalar 2–3 bit grid loss (`+3.42 dB` SQNR over `Q2_K`) | **`13.30 GiB` shipped Hybrid (`13.08 GiB` full `up_exps` / `16.04 GiB` RSS)**, **`24.18 tok/s` E2E (`+23.7%` vs `Q4_0`)**, **`70.19%` PVS acc**, **`100/100` Gate** |
-| **2. Quantization (`Fractal-64`)** | Block-64 2-Level Hierarchical Non-Linear `Q2_0 = 42` (`30B / 64w = 3.75 bpw`) from `BF16` master weights ([`scripts/build_fractal_moe_gguf.sh`](../scripts/build_fractal_moe_gguf.sh)) | `1856 × 2688` expert dimensions are not divisible by `256`, causing `Q3_K`/`IQ3_S` in `llama.cpp` to fall back to `Q4_0` | **`17.59 GiB -> 14.36 GiB` (`-6.01 GiB` idle RAM)**, **`+28.0%` CPU decode (`25.02 tok/s`)**, **`78.60 tok/s` M3 Max Metal ([PR #24](https://github.com/synchopate/llama-modchip/pull/24))**, **`100/100` Gate** |
+| **2. Quantization (`Fractal-64`)** | Block-64 2-Level Hierarchical Non-Linear `Q2_0 = 42` (`30B / 64w = 3.75 bpw`) from `BF16` master weights ([`scripts/build_fractal_moe_gguf.sh`](../scripts/build_fractal_moe_gguf.sh)) | `1856 × 2688` expert dimensions are not divisible by `256`, causing `Q3_K`/`IQ3_S` in `llama.cpp` to fall back to `Q4_0` | **`17.60 GiB -> 14.36 GiB` (`-6.01 GiB` idle RAM)**, **`+28.0%` CPU decode (`25.02 tok/s`)**, **`78.60 tok/s` M3 Max Metal ([PR #24](https://github.com/synchopate/llama-modchip/pull/24))**, **`100/100` Gate** |
 | **3. Quantization (`Fractal-MXFP4`)** | Asymmetric Block-32 `MXFP4` (`4.25 bpw`) on routed MoE experts + `Q8_0`/`Q4_0` on GQA/SSM backbone + `_MM_HINT_NTA` | Bandwidth bottleneck on CPU & VRAM capacity on `16 GB` GPUs | **`15.95 GiB`**, **`+33.5%` CPU decode (`26.08 tok/s`)**, **`75.1–80.8 tok/s` on AMD Vulkan Hybrid** |
 | **4. SIMD Kernels (`Q2_0` & `VQ3_0`)** | Single-cycle AVX-512 VBMI `VPERMI2B` (`VQ3_0`) and AVX2 variable bit-shifts (`_mm256_sllv_epi32` / `_mm256_srlv_epi32`) fused into `vpmaddwd` (`Q2_0`) | Scalar bit-unpacking overhead in sub-4-bit hierarchical blocks | **`+55%` `Q2_0` kernel speedup** (`86.5 ms -> 55.8 ms` per 10M blocks), register-resident 384-byte `VQ3_0` codebook |
 | **5. Speculative Engine (`Stockfish-PVS v2`)** | `192 KB` L2-resident Zobrist Transposition Tables (`tt5/tt4/tt3` in [`rc_stockfish.h`](../speculative/cpp/rc_stockfish.h)) + 1-Ply Quiescence PVS + `RouteCrack` 8-Level FNV-64 Cascade + Macro Codebook (`M=7`) | 1B neural draft models read `3.0 GB` from DDR5 (`40 ms`) and flush L3 cache | **`48.39 tok/s` avg / `60.40 tok/s` peak** on 16C Zen 5 (`96.4%` acc, `len 6.90`); **`111.62 tok/s` warm** on Threadripper 7985WX |
@@ -27,7 +27,7 @@
 | **8. Weight Tile Repacking (`q4_0_8x8`)** | In-memory AVX-512 VNNI (`VPDPBUSD`) / AVX2 interleaved `8×8` matrix tile repacking at model load | Cache-line splits and nibble-unpacking stalls during GEMV/GEMM | **`+19%` raw GEMV throughput** and **`241–306.8 tok/s` (`pp512`) prefill** on 16C Zen 5 |
 | **9. KV Cache (`EAKV + VPI`)** | Entropy-Guided Asymmetric KV (`Q8_0` Keys for RoPE phase precision, `Q4_0` Values) + Virtual Positional Indexing | FP16 KV cache growth and RoPE degradation at `128K–256K` context | Full **`256K` context in `432 MB`**, `100%` passkey needle retrieval |
 | **10. Agentic Loop (`HARP-Cache` Slot-0)** | `/dev/shm` memory-mapped KV + Mamba-2 recurrent state snapshot + SSE Gateway auto-restore | Re-evaluating Claude Code's `22.2K`-token 40-tool system prompt takes `130.8 s` on CPU | **`18.9 ms` warm turn restore** |
-| **11. Dynamic MoE Pruning (`Top-K 6->4`)** | Opt-in norm-preserving dynamic MoE router truncation (`LLAMA_MOE_TOP_K=4` via `/dev/shm/llama_modchip.bin`) | Reading 6 routed experts per layer on bandwidth-constrained DDR4/DDR5 | **`-33%` routed MoE DRAM traffic** (switchable live via TUI) |
+| **11. Dynamic MoE Pruning (`Top-K 6->4`)** | Opt-in norm-preserving dynamic MoE router truncation (`LLAMA_MOE_TOP_K=4` via per-UID `/dev/shm/llama_modchip_<uid>.bin`) | Reading 6 routed experts per layer on bandwidth-constrained DDR4/DDR5 | **`-33%` routed MoE DRAM traffic** (switchable live via TUI) |
 
 ---
 
@@ -35,7 +35,7 @@
 
 All four quantization profiles (`Baseline-Q4_0`, `Fractal-MXFP4`, `Fractal-64-BF16`, and `LUT-VQ3-64`) pass the automated grading suite [`benchmarks/eval_quality_and_tools.py`](../benchmarks/eval_quality_and_tools.py) (full reports in [`benchmarks/QUALITY_GATE_VQ3_64.md`](../benchmarks/QUALITY_GATE_VQ3_64.md) and [`benchmarks/FRACTAL_MOE_QUALITY_GATE.md`](../benchmarks/FRACTAL_MOE_QUALITY_GATE.md)):
 
-| Metric / Suite ([`benchmarks/eval_quality_and_tools.py`](../benchmarks/eval_quality_and_tools.py)) | `Baseline-Q4_0` (`17.59 GiB`) | `Fractal-MXFP4` (`15.95 GiB`) | `Fractal-64-BF16` (`14.36 GiB`) | **`LUT-VQ3-64` (`13.30 / 13.08 GiB`)** |
+| Metric / Suite ([`benchmarks/eval_quality_and_tools.py`](../benchmarks/eval_quality_and_tools.py)) | `Baseline-Q4_0` (`17.60 GiB`) | `Fractal-MXFP4` (`15.95 GiB`) | `Fractal-64-BF16` (`14.36 GiB`) | **`LUT-VQ3-64` (`13.30 / 13.08 GiB`)** |
 | :--- | :---: | :---: | :---: | :---: |
 | **1. Agentic Tool-Calling (`30` pts — 5 multi-tool JSON calls)** | `30.0 / 30.0` | `30.0 / 30.0` | `30.0 / 30.0` | **`30.0 / 30.0`** |
 | **2. Executable Python Code Gen (`30` pts — sandbox-tested)** | `30.0 / 30.0` | `30.0 / 30.0` | `30.0 / 30.0` | **`30.0 / 30.0`** |
@@ -48,7 +48,7 @@ All four quantization profiles (`Baseline-Q4_0`, `Fractal-MXFP4`, `Fractal-64-BF
 
 Independent paired evaluation conducted by `@khairullinr` on an Apple M4 Max (`36 GB` LPDDR5X-8533, Metal) using `llama-perplexity --kl-divergence` on a Python source-code corpus (`12` chunks × `2048` ctx, `~12.3k` scored tokens, `-ngl 99 -fa 1 -b 256 -ub 256`, [Issue #16](https://github.com/synchopate/llama-modchip/issues/16#issuecomment-6752457578)):
 
-- **Reference Model**: `NVIDIA-Nemotron-3.5-Lightning-30B-A3B-Q4_0.gguf` (`17.59 GiB`, nominal `4.50 bpw`). Note this measures fidelity relative to `Q4_0`, not unquantized `BF16`.
+- **Reference Model**: `NVIDIA-Nemotron-3.5-Lightning-30B-A3B-Q4_0.gguf` (`17.60 GiB`, nominal `4.50 bpw`). Note this measures fidelity relative to `Q4_0`, not unquantized `BF16`.
 - **Target Quantization**: `Fractal-64-BF16` (`14.36 GiB`, nominal `3.75 bpw`, `-18.42%` file footprint).
 - **Top-1 (Argmax) Token Agreement**: **`94.347 ± 0.208%`** (reported as `Same top p` by `llama-perplexity`). In ~19 out of 20 token positions, `Fractal-64` selects the exact same greedy token as the `Q4_0` baseline.
 - **Kullback-Leibler Divergence (KLD)**:
@@ -67,6 +67,18 @@ Independent paired evaluation conducted by `@khairullinr` on an Apple M4 Max (`3
   - **Median $\Delta p$**: **`-0.000%`** (no systematic probability bias)
   - **RMS $\Delta p$**: **`8.133 ± 0.197%`**
 - *Methodological Caveats*: Single Python code corpus (low entropy compared to open prose); tokens within context windows are correlated, so asymptotic variance may exceed i.i.d. estimates.
+
+### 3.2 Direct Uncompressed `BF16` (`58.84 GiB`) `WikiText-2` Perplexity & Multi-Step Logit KLD (`v2.5.3`)
+
+To measure quantization and abliteration fidelity directly against the uncompressed `58.84 GiB` `NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16` master checkpoint without intermediate `Q4_0` quantization noise, [`benchmarks/eval_perplexity_and_kld.py`](../benchmarks/eval_perplexity_and_kld.py) evaluates teacher-forced perplexity on uncompressed `WikiText-2` (`wiki.test.raw`, `24 × 512 = 12,288` tokens) alongside 32-probe step-0 and prefix-matched multi-step rollout Top-64 Logit KL-Divergence (`T = 1.0`, raw JSON artifacts in [`benchmarks/results/`](../benchmarks/results/)):
+
+| `Nemotron-3.5-30B-A3B` Checkpoint | Disk Size | **`WikiText-2` `PPL ± σ` (`12,288` tok)** | **32-Probe Step-0 KLD vs. True `BF16`** | **Prefix-Matched Multi-Step KLD vs. True `BF16`** | **Same-Family KLD (`Step-0` / `Matched`)** |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| **True `BF16` Master** | `58.84 GiB` | **`6.9582 ± 0.24151`** *(Ref)* | `0.0000 nats` (`100%` Ref) | `0.0000 nats` (`100%` Ref) | — |
+| **`Fractal-MXFP4` *(from `Q4_0`)*** | `15.95 GiB` | `7.2927 ± 0.25382` (`+4.81%`) | `0.1623 nats` (`78.1%` Top-1, `96.9%` Top-5) | `0.1204 nats` (`155` pos, `88.4%` Top-1, `97.4%` Top-5) | — |
+| **`Fractal-64` *(direct from `BF16`)*** | `14.36 GiB` | **`7.3610 ± 0.26017`** (`+5.79%`) | **`0.1254 nats`** (`81.2%` Top-1, **`100%` Top-5**) | **`0.0929 nats`** (`167` pos, **`89.8%` Top-1, `99.4%` Top-5**) | `0.0000` *(Ref)* |
+| **`VQ3-64` *(Aligned Default)*** | `13.30 GiB` | **`7.4400 ± 0.26263`** (`+6.92%`) | **`0.1495 nats`** (`78.1%` Top-1, `96.9%` Top-5) | **`0.0944 nats`** (`149` pos, `85.2%` Top-1, `98.0%` Top-5) | **`0.0523 / 0.0889 nats`** vs. `Fractal-64` |
+| **`Abliterated-VQ3-64` *(Opt-In)*** | `13.30 GiB` | `7.7721 ± 0.28352` (`+11.70%`) | `0.1431 nats` (`75.0%` Top-1, `100%` Top-5) | `0.1109 nats` (`141` pos, `84.4%` Top-1, `99.3%` Top-5) | **`0.0308 / 0.0312 nats`** vs. `VQ3-64` *(`92.4%` Top-1, `100%` Top-5)* |
 
 ---
 

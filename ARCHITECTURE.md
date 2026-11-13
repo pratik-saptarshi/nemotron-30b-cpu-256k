@@ -486,7 +486,7 @@ By hooking `hparams.n_expert_used` in `src/llama-model.cpp` via `LLAMA_MOE_TOP_K
 
 In `NVIDIA-Nemotron-3.5-Lightning-30B-A3B`, the 46 routed MoE expert tensors (`blk.*.ffn_up_exps.weight` and `blk.*.ffn_down_exps.weight`, `128` experts per layer) contain **26.77 billion parameters (`90.1%` of total model weights)**. However, their inner dimensions are `n_ff_exp = 1856` (`29 × 64`) and `n_embd = 2688` (`42 × 64`). Because neither `1856` nor `2688` is divisible by `QK_K = 256`, **all standard 256-element sub-4-bit K-quants and I-quants in `llama.cpp` (`Q3_K`, `IQ3_S`, `IQ3_XXS`) fail alignment and fall back to `Q4_0`**.
 
-Furthermore, in the official `NVIDIA-Nemotron-3.5-Lightning-30B-A3B-Q4_0.gguf` (`17.59 GiB`), only the routed MoE experts are `Q4_0` (`4.50 bpw`), while 118 other tensors (`ssm_in`, `ssm_out`, `ffn_up_shexp`, `ffn_down_shexp`, `token_embd`) remain at `Q8_0` (`8.50 bpw`).
+Furthermore, in the official `NVIDIA-Nemotron-3.5-Lightning-30B-A3B-Q4_0.gguf` (`17.60 GiB`), only the routed MoE experts are `Q4_0` (`4.50 bpw`), while 118 other tensors (`ssm_in`, `ssm_out`, `ffn_up_shexp`, `ffn_down_shexp`, `token_embd`) remain at `Q8_0` (`8.50 bpw`).
 
 #### 1. What Builds on Known Quantization Literature vs. What Is New Here
 - **Foundations from existing literature (`K-quants`, `QLoRA`, `NF4` / `IQ4_NL`)**: Two-level hierarchical block scaling (a floating-point super-block scale combined with integer sub-block scales) and non-uniform lookup tables decoded via `VPSHUFB` (`_mm256_shuffle_epi8`) are established techniques in `Q3_K`/`Q4_K` and `IQ4_NL`/`MXFP4`.
@@ -518,7 +518,7 @@ Built via [`scripts/build_fractal_moe_gguf.sh`](scripts/build_fractal_moe_gguf.s
 
 | Metric / Suite | `Baseline-Q4_0` (Official GGUF) | `Fractal-MXFP4` (from `Q4_0`) | **`Fractal-64-BF16` (from `BF16` `58.84 GiB`)** | `Fractal-64-BF16` vs Baseline |
 | :--- | :---: | :---: | :---: | :---: |
-| **GGUF File Size on Disk** | `17.59 GiB` (`18,015 MiB`) | `15.95 GiB` (`16,328 MiB`) | **`14.35 GiB` (`14,698 MiB`)** | **`-3.24 GiB` (`-18.4%`)** |
+| **GGUF File Size on Disk** | `17.60 GiB` (`18,023 MiB`) | `15.95 GiB` (`16,328 MiB`) | **`14.36 GiB` (`14,698 MiB`)** | **`-3.24 GiB` (`-18.4%`)** |
 | **1. Agentic Tool-Calling (`30` pts)** | `30.0 / 30.0` | `30.0 / 30.0` | **`30.0 / 30.0`** | `100.0%` parity |
 | **2. Executable Code Gen (`30` pts)** | `30.0 / 30.0` | `30.0 / 30.0` | **`30.0 / 30.0`** | `100.0%` parity |
 | **3. Long-Context Needle (`8.5K`) & Math (`20` pts)** | `20.0 / 20.0` | `20.0 / 20.0` | **`20.0 / 20.0`** | `100.0%` parity |
@@ -533,7 +533,7 @@ Built via [`scripts/build_fractal_moe_gguf.sh`](scripts/build_fractal_moe_gguf.s
 
 Not all optimizations are safe on every GGUF architecture. [`scripts/llama_modchip.py`](scripts/llama_modchip.py) inspects any `.gguf` binary header and the host Linux CPU/cache topology in `<5 ms`, classifies microarchitectural flags into safety tiers (`SAFE`, `AUTO-ADAPTIVE`, `EXPERIMENTAL`, `LOCKED`), and operates at two levels:
 - **Startup & Graph-Construction Profile**: Injects load-time parameters (`LLAMA_MOE_TOP_K`, `--repack`, `MADV_HUGEPAGE`, deterministic per-CCD `taskset -c` core pinning, `-ctk q8_0 -ctv q4_0`).
-- **Live Per-Forward-Pass `/dev/shm/llama_modchip.bin` Control**: Writes a 48-byte POSIX shared-memory struct read on every forward/draft pass by `ggml-cpu/ops.cpp` and `common/ngram-map.cpp` (`attn_window`, `attn_sinks`, `swa_stride`, `l3_window`, `rc_enabled`, `rc_cert_d0/d1/d2`).
+- **Live Per-Forward-Pass Per-UID Shared-Memory Control (`/dev/shm/llama_modchip_<uid>.bin`)**: Writes a `0600` 48-byte POSIX shared-memory struct (`MODCHIP_SHM_PATH` / `$XDG_RUNTIME_DIR/llama_modchip.bin` / `/dev/shm/llama_modchip_<uid>.bin`, validated via `O_NOFOLLOW` + `fstat` UID/mode check) read on every forward/draft pass by `ggml-cpu/ops.cpp` and `common/ngram-map.cpp` (`attn_window`, `attn_sinks`, `swa_stride`, `l3_window`, `rc_enabled`, `rc_cert_d0/d1/d2`).
 
 1. **Dynamic L3 Window Sizing (`LLAMA_KV_L3_WINDOW`)**:
    Reads `attention.head_count_kv`, `key_length`, and `value_length` from the GGUF header and sizes `LLAMA_KV_L3_WINDOW` so hot KV cells occupy $\le 25\%$ of detected L3 cache capacity:
@@ -548,7 +548,7 @@ Not all optimizations are safe on every GGUF architecture. [`scripts/llama_modch
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
 | **`Nemotron-3.5-30B-A3B-Fractal-64`** (`14.36 GiB`) | `nemotron_h_moe` (`23 SSM + 23 MoE + 6 GQA`) | **`2.44 KB/tok`** *(`1.73 KB` in `Q4/Q4`)* | `2048` (`4.88 MiB`) | `Exact 256K (window=0)` | `Strict (84/92/96)` | `6 -> 4 (norm=True)` |
 | **`Nemotron-3.5-30B-A3B-Fractal-MXFP4`** (`15.95 GiB`) | `nemotron_h_moe` (`23 SSM + 23 MoE + 6 GQA`) | **`2.44 KB/tok`** *(`1.73 KB` in `Q4/Q4`)* | `2048` (`4.88 MiB`) | `Exact 256K (window=0)` | `Strict (84/92/96)` | `6 -> 4 (norm=True)` |
-| **`Nemotron-3.5-30B-A3B-Q4_0`** (`17.59 GiB`) | `nemotron_h_moe` (`23 SSM + 23 MoE + 6 GQA`) | **`2.44 KB/tok`** *(`1.73 KB` in `Q4/Q4`)* | `2048` (`4.88 MiB`) | `Exact 256K (window=0)` | `Strict (84/92/96)` | `6 -> 4 (norm=True)` |
+| **`Nemotron-3.5-30B-A3B-Q4_0`** (`17.60 GiB`) | `nemotron_h_moe` (`23 SSM + 23 MoE + 6 GQA`) | **`2.44 KB/tok`** *(`1.73 KB` in `Q4/Q4`)* | `2048` (`4.88 MiB`) | `Exact 256K (window=0)` | `Strict (84/92/96)` | `6 -> 4 (norm=True)` |
 | **`Qwen3-30B-A3B-Q4_K_M`** (`17.28 GiB`) | `qwen3moe` (`0 SSM + 48 GQA`) | `39.00 KB/tok` *(`27.65 KB` in `Q4/Q4`)* | `384` (`14.62 MiB`) | `Exact (0) / 3:1 SWA (stride=4)` | `CPU-MoE (80/90/95)` | `8 -> 4 (norm=True)` |
 | **`Nemotron-H-8B-Reasoning-128K`** (`4.6 GiB`) | `nemotron_h` (`48 SSM + 4 GQA`) | `6.50 KB/tok` | `2048` (`13.00 MiB`) | `Exact (window=0)` | `Strict (84/92/96)` | `LOCKED (Dense)` |
 | **`Llama-3-Security-40L-Q8_0`** (`23.3 GiB`) | `llama` (`0 SSM + 40 GQA`) | `65.00 KB/tok` | `256` (`16.25 MiB`) | `Exact (0) / 3:1 SWA (stride=4)` | `Balanced (78/88/94)` | `LOCKED (Dense)` |
@@ -604,7 +604,7 @@ We solve all three walls in [`patches/deepseek-v4-flash-fractal-256k.patch`](pat
    - Rescaling kept experts linearly ($\alpha_{L_1} = \sum_{i=1}^6 w_i / \sum_{i=1}^k w_i \approx 1.23$) inflates the routed MoE branch relative to the unscaled dense shared expert (`ffn_out = moe_out + ffn_shexp`), whereas **$L_2$-quadrature rescaling** ($\alpha_{L_2} = \sqrt{\sum_{i=1}^6 w_i^2 / \sum_{i=1}^k w_i^2}$) preserves the exact variance entering `RMSNorm` and cuts KL-divergence by **`-58%`**:
      - **`Top-5` (`il >= 3`, $L_2$)**: **`9.68 tok/s` (`103.27 ms/tok`)**, **`0.99714` (`99.71%`) probability cosine similarity**, **`0.0042 nats` KL-divergence (`+0.42%` PPL)**, **`100%` Top-3 agreement**.
      - **`Top-4` (`il >= 3`, $L_2$)**: **`10.12 tok/s` (`98.84 ms/tok`)**, **`0.99587` (`99.59%`) probability cosine similarity**, **`0.0281 nats` KL-divergence (`+2.85%` PPL)**, **`100%` Top-3 agreement**.
-     - Controlled at runtime with zero syscall overhead (`0.3 ns`) via memory-mapped `$DSV4_MOE_CFG_PATH` (configured by `install.sh` / `modchip` inside a `0700` user-private directory `${XDG_RUNTIME_DIR:-./workspace/run}/modchip-$(id -u)/dsv4_moe_cfg.bin`, falling back to `/tmp/dsv4_moe_cfg.bin` only when `DSV4_MOE_CFG_PATH` is unset) on Linux/macOS and `%TEMP%\dsv4_moe_cfg.bin` (`CreateFileMappingA` / `MapViewOfFile`) on Windows (`_WIN32`).
+     - Controlled at runtime with zero syscall overhead (`0.3 ns`) via explicit opt-in memory-mapped `$DSV4_MOE_CFG_PATH` (configured by `install.sh` / `modchip` inside a `0700` user-private directory `${XDG_RUNTIME_DIR:-./workspace/run}/modchip-$(id -u)/dsv4_moe_cfg.bin` with `0600` mode, `O_NOFOLLOW`, and UID verification on Linux/macOS, and `$LOCALAPPDATA\llama-modchip\dsv4_moe_cfg.bin` via `DSV4_MOE_CFG_PATH` on Windows `_WIN32`; never opens shared `/tmp` or `%TEMP%` paths when unset).
 
 ---
 

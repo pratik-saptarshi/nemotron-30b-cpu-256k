@@ -11,7 +11,7 @@
 
 | Metric / Suite | `Baseline-Q4_0` (Official GGUF) | `Fractal-MXFP4` (Requant from `Q4_0`) | `Fractal-64-BF16` (Direct from `BF16` `58.84 GiB`) | `Fractal-64-BF16` vs Baseline |
 | :--- | :---: | :---: | :---: | :---: |
-| **GGUF File Size on Disk** | `17.59 GiB` (`18,015 MiB`) | `15.95 GiB` (`16,328 MiB`) | **`14.35 GiB` (`14,698 MiB`)** | **`-3.24 GiB` (`-18.4%`)** |
+| **GGUF File Size on Disk** | `17.60 GiB` (`18,023 MiB`) | `15.95 GiB` (`16,328 MiB`) | **`14.36 GiB` (`14,698 MiB`)** | **`-3.24 GiB` (`-18.4%`)** |
 | **Effective Bits/Weight (MoE / Total)** | `4.50` / `4.78 bpw` | `4.25` / `4.33 bpw` | **`3.75` / `3.90 bpw`** | **`-0.88 bpw`** |
 | **SQNR on True `BF16` Expert Weights** | `21.02 dB` | `18.51 dB` | **`17.78 dB`** | `+1.53 dB` above `Q3_K` (`16.25 dB`) |
 | **1. Agentic Tool-Calling (`30` pts)** | `30.0 / 30.0` | `30.0 / 30.0` | **`30.0 / 30.0`** | **`100.0%` parity** |

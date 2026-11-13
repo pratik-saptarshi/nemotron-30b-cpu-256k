@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# install.sh — Interactive Zero-to-Running Installer for llama-modchip (v2.5.2)
+# install.sh — Interactive Zero-to-Running Installer for llama-modchip (v2.5.3)
 # ==============================================================================
 # Usage:
 #   One-liner (from scratch):
@@ -288,7 +288,7 @@ if [[ "$MODEL_EXPLICIT" == "0" && -z "$MODEL_PRESET" ]]; then
         echo "     Default 30B for AVX2 / AMD Zen 1–2 / ARM64 CPUs (safety-aligned, 100/100 Gate)"
         echo "  7) NVIDIA-Nemotron-3.5-30B-A3B-Abliterated-VQ3[30B MoE  · 13.30 GiB · 1 file]"
         echo "     [OPT-IN UNCENSORED] 30B VQ3-64 (Darkstar BF16 abliterated, refusal removed)"
-        echo "  8) NVIDIA-Nemotron-3.5-Lightning-30B-A3B-Q4_0 [30B MoE  · 17.59 GiB · 1 file]"
+        echo "  8) NVIDIA-Nemotron-3.5-Lightning-30B-A3B-Q4_0 [30B MoE  · 17.60 GiB · 1 file]"
         echo "     Official 4.50-bpw Q4_0 baseline checkpoint (24 GB+ RAM)"
         echo "------------------------------------------------------------------------------"
         while true; do
@@ -336,18 +336,18 @@ else
             MODEL_FAMILY="dsv4"
             MODEL_LABEL="DeepSeek-V4-Flash-0731-MaxQ-Fractal (284B · 56.93 GiB · 3 shards)"
             MODEL_REPO="Synchopate/DeepSeek-V4-Flash-0731-MaxQ-Fractal-64GB-CPU-GGUF"
-            MODEL_REV="83a50942d999c7c321cd7941465f7d5bb6447f29"
+            MODEL_REV="7b65f11ccb0e867e3156118d84e2b08657621601"
             MODEL_SUBDIR="dsv4-maxq-fractal"
             MODEL_SHARDS=(
                 "DeepSeek-V4-Flash-0731-MaxQ-Fractal-00001-of-00003.gguf"
                 "DeepSeek-V4-Flash-0731-MaxQ-Fractal-00002-of-00003.gguf"
                 "DeepSeek-V4-Flash-0731-MaxQ-Fractal-00003-of-00003.gguf"
             )
-            MODEL_SHARD_SIZES=(5257728 36817932704 24306173504)
+            MODEL_SHARD_SIZES=(5257952 36817932704 24306173504)
             MODEL_SHARD_SHA256S=(
-                "d0b0393120544960f6e346d68005ce0b8e377e905ac5397d7ff972f3e1dc7150"
-                "dd698fd772ee8e9ee82bf1fe36554cf6593de47cdd4f1b8c4eb6ef917d516f4e"
-                "1606873a1c02b4b853520a45c5a6ac43f3920e9c86de6b5dd8f41a8d3e7533f9"
+                "0ae64076077f88f5750d7e78403bbf0304a386c86912a47655eb3aaf627d2ce4"
+                "155fc6c239969ed2c470c6a7b9c474bc0c17922980e8111f614c88dd65e63aa5"
+                "15f2e256b9b1c3e106a52ddc2e093f2264571ffdbce3ba0010f54f9ecce57252"
             )
             ;;
         2|dsv4-vq3)
@@ -355,16 +355,16 @@ else
             MODEL_FAMILY="dsv4"
             MODEL_LABEL="DeepSeek-V4-Flash-0731-VQ3 (284B · 56.40 GiB · 3 shards)"
             MODEL_REPO="Synchopate/DeepSeek-V4-Flash-0731-VQ3-64GB-CPU-GGUF"
-            MODEL_REV="a45756f353e038c414d7487e3cf64b4683ca9f5c"
+            MODEL_REV="8d4ae82ca94d3dd4a9b5063f198848c52cd38c23"
             MODEL_SUBDIR="dsv4-vq3"
             MODEL_SHARDS=(
                 "DeepSeek-V4-Flash-0731-VQ3-00001-of-00003.gguf"
                 "DeepSeek-V4-Flash-0731-VQ3-00002-of-00003.gguf"
                 "DeepSeek-V4-Flash-0731-VQ3-00003-of-00003.gguf"
             )
-            MODEL_SHARD_SIZES=(5257664 36362375584 24191223360)
+            MODEL_SHARD_SIZES=(5258016 36362375584 24191223360)
             MODEL_SHARD_SHA256S=(
-                "2fa152e25a14500e42e6d98f20d200eec1e945f34dc1cfb981b651b9c86b97be"
+                "00ae0e9b0316ece06cd75afb7d0d49bcfa01fcfca3f3eb8f37d1e2b7c65e25bb"
                 "6b1d75cbd3d7fa7668820d259ae205c2ad5078123b92b01bc1d3f8863dd7e957"
                 "5f811f21a60cc1aa210afa2eda8aacc53205815f429f8bacdc28cc6371da8ec5"
             )
@@ -374,16 +374,16 @@ else
             MODEL_FAMILY="dsv4"
             MODEL_LABEL="DeepSeek-V4-Flash-0731-Fractal (284B · 56.57 GiB · 3 shards)"
             MODEL_REPO="Synchopate/DeepSeek-V4-Flash-0731-Fractal-64GB-CPU-GGUF"
-            MODEL_REV="7690d621587e0c2bf01d4405e043bdb593f2fdd4"
+            MODEL_REV="089c653c264f56d07186fffecd27bd9ee428c581"
             MODEL_SUBDIR="dsv4-fractal"
             MODEL_SHARDS=(
                 "DeepSeek-V4-Flash-0731-Fractal-00001-of-00003.gguf"
                 "DeepSeek-V4-Flash-0731-Fractal-00002-of-00003.gguf"
                 "DeepSeek-V4-Flash-0731-Fractal-00003-of-00003.gguf"
             )
-            MODEL_SHARD_SIZES=(5257664 36472476064 24261609024)
+            MODEL_SHARD_SIZES=(5258016 36472476064 24261609024)
             MODEL_SHARD_SHA256S=(
-                "2fa152e25a14500e42e6d98f20d200eec1e945f34dc1cfb981b651b9c86b97be"
+                "6f8e5e93faf86e61d2f378170139299477dee53a8bb8798011cf35566e30db25"
                 "f191c7d2cf34cc9ca7786bfb41d1b3a2b1bf18593db5594ae26e5b25087f1030"
                 "2ad07ab072be090bea938b0c407ac03bc6f9fb825ea289eda43a8dbac4844182"
             )
@@ -394,16 +394,16 @@ else
             IS_ABLITERATED=1
             MODEL_LABEL="DeepSeek-V4-Flash-0731-Abliterated-Fractal (284B · 56.93 GiB · 3 shards)"
             MODEL_REPO="Synchopate/DeepSeek-V4-Flash-0731-Abliterated-Fractal-64GB-CPU-GGUF"
-            MODEL_REV="3dc0965cde47b224d395bea24f903052aebfb35c"
+            MODEL_REV="4b5a063588db606202dbd7c72c15280c35833af6"
             MODEL_SUBDIR="dsv4-abliterated-fractal"
             MODEL_SHARDS=(
                 "DeepSeek-V4-Flash-0731-Abliterated-Fractal-00001-of-00003.gguf"
                 "DeepSeek-V4-Flash-0731-Abliterated-Fractal-00002-of-00003.gguf"
                 "DeepSeek-V4-Flash-0731-Abliterated-Fractal-00003-of-00003.gguf"
             )
-            MODEL_SHARD_SIZES=(5257792 36817932704 24306173504)
+            MODEL_SHARD_SIZES=(5258016 36817932704 24306173504)
             MODEL_SHARD_SHA256S=(
-                "ba26a91be9ff4e0b23db873ab09570866328bd97d2b27b16d7bd374bbfb6e891"
+                "69b5bf614a56c119670b1b9535b71e46987e917928fbf09ac4631c3d202ef87f"
                 "6e3f499c5b6311a8cdd225243c457f45e7672fded595aba37dc3f15720db8f10"
                 "0063f3a9566cdc5a1c1e0b1dc14fefd0da408a9dac3f0b692d676b86cc8f46e3"
             )
@@ -413,7 +413,7 @@ else
             MODEL_FAMILY="nemotron"
             MODEL_LABEL="NVIDIA-Nemotron-3.5-30B-A3B-VQ3-64 (30B · 13.30 GiB)"
             MODEL_REPO="Synchopate/NVIDIA-Nemotron-3.5-30B-A3B-VQ3-64-CPU-GGUF"
-            MODEL_REV="fcb7d746a742c0bff9794b510dd742094da551bc"
+            MODEL_REV="e49472e6cdad48d9f176db29b597153c9c605238"
             MODEL_SHARDS=("NVIDIA-Nemotron-3.5-30B-A3B-VQ3-64.gguf")
             MODEL_SHARD_SIZES=(14282559040)
             MODEL_SHARD_SHA256S=("d273709749aa88fd5a5af59ed3a2d55354283e1ae8ae7483f85737dd01d42b76")
@@ -423,7 +423,7 @@ else
             MODEL_FAMILY="nemotron"
             MODEL_LABEL="NVIDIA-Nemotron-3.5-30B-A3B-Fractal-64 (30B · 14.36 GiB)"
             MODEL_REPO="Synchopate/NVIDIA-Nemotron-3.5-30B-A3B-Fractal-64-CPU-GGUF"
-            MODEL_REV="810296a6524891068a37b037ae3f2f80ab038437"
+            MODEL_REV="0176e63e646b09a132517e2c5981097ae630fedd"
             MODEL_SHARDS=("NVIDIA-Nemotron-3.5-30B-A3B-Fractal-64.gguf")
             MODEL_SHARD_SIZES=(15420034624)
             MODEL_SHARD_SHA256S=("71c22562ab908d5d3373e3a010544e977af2499e3cc476fc7646d402a8a550ee")
@@ -434,7 +434,7 @@ else
             IS_ABLITERATED=1
             MODEL_LABEL="NVIDIA-Nemotron-3.5-30B-A3B-Abliterated-VQ3-64 (30B · 13.30 GiB)"
             MODEL_REPO="Synchopate/NVIDIA-Nemotron-3.5-30B-A3B-Abliterated-VQ3-64-CPU-GGUF"
-            MODEL_REV="3a3035becd2e99589bc665c9e6daa87cc87ecc4d"
+            MODEL_REV="c90f718637561fbb1a63e51668a9b555e0cdc610"
             MODEL_SHARDS=("NVIDIA-Nemotron-3.5-30B-A3B-Abliterated-VQ3-64.gguf")
             MODEL_SHARD_SIZES=(14282559488)
             MODEL_SHARD_SHA256S=("456d5561acf609850c816fa15de7dbff93bd92430f64aadd85682dacc6f02fa4")
@@ -442,7 +442,7 @@ else
         8|nemotron-q4)
             MODEL_PRESET="nemotron-q4"
             MODEL_FAMILY="nemotron"
-            MODEL_LABEL="NVIDIA-Nemotron-3.5-Lightning-30B-A3B-Q4_0 (30B · 17.59 GiB)"
+            MODEL_LABEL="NVIDIA-Nemotron-3.5-Lightning-30B-A3B-Q4_0 (30B · 17.60 GiB)"
             MODEL_REPO="ggml-org/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-GGUF"
             MODEL_REV="8cd082170ed313484be1cf44f256a5caa2cfdad3"
             MODEL_SHARDS=("NVIDIA-Nemotron-3.5-Lightning-30B-A3B-Q4_0.gguf")
@@ -517,7 +517,7 @@ if [[ "$ENGINE_MODE_EXPLICIT" == "0" ]]; then
             echo "     Supports BOTH DeepSeek-V4 284B & Nemotron-30B (Fractal-64 + LUT-VQ3-64);"
             echo "     no C++ compiler (cmake/g++) required."
             echo "  2) Compile from source — Unified DeepSeek-V4 284B + Nemotron-30B engine"
-            echo "     Applies deepseek-v4-flash-fractal-256k.patch + lut-vq3-64-avx512-vbmi.patch."
+            echo "     Applies deepseek-v4-flash-fractal-256k.patch + dsv4-ipc-hardening.patch + lut-vq3-64-avx512-vbmi.patch."
             echo "  3) Compile from source — Dedicated Nemotron-30B + offline RouteCrack builder"
             echo "     Applies zen5-nemotron-256k-optimizations.patch + lut-vq3-64-avx512-vbmi.patch."
             echo "------------------------------------------------------------------------------"
@@ -591,10 +591,10 @@ LLAMA_BUILD_DIR="${WORKSPACE_DIR}/llama.cpp"
 
 PREBUILT_OK=0
 if [[ "$USE_PREBUILT" == "1" && -n "$X86_PREBUILT_ASSET" ]]; then
-    ASSET_URL="https://github.com/synchopate/llama-modchip/releases/download/v2.5.2/${X86_PREBUILT_ASSET}"
-    FALLBACK_ASSET_URL="https://github.com/synchopate/llama-modchip/releases/download/v2.5.1/${X86_PREBUILT_ASSET}"
-    EXPECTED_BIN_SHA256="0001a63c29b2eb3a9438008c8757336b392eb647ef4cd966af7f6b295c527c64"
-    [[ "$X86_PREBUILT_ASSET" == *-avx512 ]] && EXPECTED_BIN_SHA256="fffd7dad3fe28c45d8b9f42c5067e14431ace1b77eeac5106cb0a9948c7d5bc2"
+    ASSET_URL="https://github.com/synchopate/llama-modchip/releases/download/v2.5.3/${X86_PREBUILT_ASSET}"
+    FALLBACK_ASSET_URL="https://huggingface.co/Synchopate/DeepSeek-V4-Flash-0731-MaxQ-Fractal-64GB-CPU-GGUF/resolve/7b65f11ccb0e867e3156118d84e2b08657621601/${X86_PREBUILT_ASSET}"
+    EXPECTED_BIN_SHA256="09f2a1accacb1454aaf0d9a8d75dda8f7cca36df81138eb57bfee45137ef07e4"
+    [[ "$X86_PREBUILT_ASSET" == *-avx512 ]] && EXPECTED_BIN_SHA256="85fe1e2a780ce7c88d99cf5f6fa384c2726dfeee247460924d6bf937efd19597"
     echo "[*] CPUID selected portable precompiled binary: ${X86_PREBUILT_ASSET}"
     if curl -fL --progress-bar -o "${WORKSPACE_DIR}/bin/llama-server-nemotron.part" "$ASSET_URL" \
         || curl -fL --progress-bar -o "${WORKSPACE_DIR}/bin/llama-server-nemotron.part" "$FALLBACK_ASSET_URL"; then
@@ -800,9 +800,9 @@ if [[ -n "$MODEL_PATH" ]]; then
     fi
 fi
 
-if [[ -f "${REPO_ROOT}/start_server.sh" ]]; then
+if [[ -f "${REPO_ROOT}/start_server.sh" && ! -f "${REPO_ROOT}/start_server.sh.bak" ]]; then
     cp -f "${REPO_ROOT}/start_server.sh" "${REPO_ROOT}/start_server.sh.bak"
-    echo "[i] Backed up existing start_server.sh -> start_server.sh.bak"
+    echo "[i] Backed up original start_server.sh -> start_server.sh.bak"
 fi
 
 cat > "${REPO_ROOT}/start_server.sh" <<EOF
@@ -814,12 +814,30 @@ set -euo pipefail
 export RC_TABLES_DIR="${WORKSPACE_DIR}/routecrack"
 export LD_LIBRARY_PATH="${LLAMA_BUILD_DIR}/build/bin:\${LD_LIBRARY_PATH:-}"
 
+MODEL="${MODEL_PATH}"
+PASS_ARGS=()
 if [[ \$# -gt 0 && "\$1" != -* ]]; then
     MODEL="\$1"
     shift
-else
-    MODEL="${MODEL_PATH}"
 fi
+while [[ \$# -gt 0 ]]; do
+    case "\$1" in
+        -m|--model)
+            if [[ \$# -ge 2 ]]; then
+                MODEL="\$2"
+                shift 2
+                continue
+            fi
+            ;;
+        --model=*)
+            MODEL="\${1#--model=}"
+            shift
+            continue
+            ;;
+    esac
+    PASS_ARGS+=("\$1")
+    shift
+done
 if [[ ! -f "\$MODEL" ]]; then
     echo "[!] Model file not found at: \$MODEL"
     echo "    Run ./install.sh (without --skip-model) or pass /path/to/model.gguf [extra flags]"
@@ -827,7 +845,7 @@ if [[ ! -f "\$MODEL" ]]; then
 fi
 
 # Run llama-modchip to inspect the GGUF header,
-# engage architecture safety locks (e.g. Interleaved 3:1 SWA on Pure GQA), and write /dev/shm/llama_modchip.bin
+# engage architecture safety locks (e.g. Interleaved 3:1 SWA on Pure GQA), and write /dev/shm/llama_modchip_<uid>.bin
 python3 "${REPO_ROOT}/scripts/llama_modchip.py" --model "\$MODEL" --apply-shm
 
 PROFILE_ENV="\$(python3 - "\$MODEL" <<'PYEOF'
@@ -935,7 +953,7 @@ exec taskset -c "\${TASKSET_MASK}" "${WORKSPACE_DIR}/bin/llama-server-nemotron" 
   --reasoning-format "\${REASONING_FORMAT:-deepseek}" \\
   --reasoning-budget "\${REASONING_BUDGET:-0}" \\
   \${EXTRA_ARGS_ARR[@]+"\${EXTRA_ARGS_ARR[@]}"} \\
-  "\$@"
+  \${PASS_ARGS[@]+"\${PASS_ARGS[@]}"}
 EOF
 chmod +x "${REPO_ROOT}/start_server.sh"
 

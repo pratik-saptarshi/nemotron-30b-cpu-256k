@@ -1,12 +1,16 @@
 {
-  "timestamp": "2026-11-12T21:47:18+0000",
+  "timestamp": "2026-11-13T01:17:59+0000",
+  "label": "DeepSeek-V4-Flash-0731-MaxQ-Fractal-v2.5.3",
+  "model": "DeepSeek-V4-Flash-0731-MaxQ-Fractal-00001-of-00003.gguf",
+  "model_sha256": "0ae64076077f88f5750d7e78403bbf0304a386c86912a47655eb3aaf627d2ce4",
   "perplexity": {
-    "ppl": 11.7434,
-    "ppl_std": 0.5717,
+    "ppl": 11.6139,
+    "ppl_std": 0.58453,
     "ctx_size": 512,
     "chunks": 16,
     "eval_tokens": 8192,
     "corpus": "wiki.test.raw",
-    "wall_sec": 230.32
+    "wall_sec": 232.48,
+    "model_sha256": "0ae64076077f88f5750d7e78403bbf0304a386c86912a47655eb3aaf627d2ce4"
   }
 }

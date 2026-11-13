@@ -2,6 +2,14 @@
 """
 Build the DeepSeek-V4-Flash-0731-VQ3 hybrid 3-shard GGUF (56.40 GiB).
 
+Source & Donor Provenance:
+  - Transcodes from the DeepSeek-V4-Flash-0731-Fractal 3-shard checkpoint, which derives from
+    deepseek-ai/DeepSeek-V4-Flash-0731 (@ 7872f01b) via unsloth/DeepSeek-V4-Flash-0731-GGUF
+    (UD-IQ1_S @ fbbb5b93; retaining Unsloth's imatrix-calibrated IQ1_S/IQ2_XXS routed-MoE
+    ffn_gate_exps and ffn_up_exps donor tensors on 70/129 3D expert tensors).
+  - For a 100% donor-free single-pass quantization directly from deepseek-ai/DeepSeek-V4-Flash-0731
+    safetensors + @antirez's 1.5M-token routed-MoE imatrix, use scripts/build_dsv4_maxq_singlepass.py.
+
 Default conservative hybrid layout (zero double-quantization of MLA attention):
   - 100% of MLA attention projections (attn_q_b, attn_output_a, attn_output_b,
     attn_kv, attn_compressor_*, indexer_compressor_*) remain untouched in

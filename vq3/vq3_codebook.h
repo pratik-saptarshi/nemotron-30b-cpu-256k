@@ -179,8 +179,10 @@ GGML_VQ3_ALIGN64 static const uint16_t ggml_vq3_shuf_mult_i16[32] = {
      8, 8, 8, 8, 10,10,10,10, 12,12,12,12, 14,14,14,14
 };
 
-#if defined(__AVX512F__)
+#if defined(__AVX512F__) || (defined(__BMI2__) && (defined(__x86_64__) || defined(_M_X64)))
 #include <immintrin.h>
+#endif
+#if defined(__AVX512F__)
 #if defined(__GNUC__) || defined(__clang__)
 static inline __m512i ggml_vq3_loadu_si512(const void * p) {
     __m512i r;

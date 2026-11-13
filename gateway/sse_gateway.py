@@ -860,7 +860,8 @@ def sanitize_non_streaming_response(resp_dict, schemas=None):
 
 
 def _build_modchip_telemetry_json() -> dict:
-    """Collects live hardware, /dev/shm/llama_modchip.bin, and llama-server /slots telemetry."""
+    """Collects live hardware, per-UID Modchip SHM, and llama-server /slots telemetry."""
+    import stat
     import struct
     cpu_model = "CPU"
     try:
@@ -891,15 +892,23 @@ def _build_modchip_telemetry_json() -> dict:
         "rc_gates": "84/92/96",
     }
     shm_candidates = []
+    custom_shm = os.environ.get("MODCHIP_SHM_PATH", "").strip()
+    if custom_shm:
+        shm_candidates.append(custom_shm)
     xdg_dir = os.environ.get("XDG_RUNTIME_DIR", "").strip()
     if xdg_dir:
         shm_candidates.append(os.path.join(xdg_dir, "llama_modchip.bin"))
-    shm_candidates.append("/dev/shm/llama_modchip.bin")
+    euid = getattr(os, "geteuid", getattr(os, "getuid", lambda: 0))()
+    shm_candidates.append(f"/dev/shm/llama_modchip_{euid}.bin")
     for shm_path in shm_candidates:
         if os.path.exists(shm_path):
+            fd = -1
             try:
-                with open(shm_path, "rb") as f:
-                    buf = f.read(48)
+                fd = os.open(shm_path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+                st = os.fstat(fd)
+                if not stat.S_ISREG(st.st_mode) or st.st_uid != euid or (st.st_mode & 0o022) != 0:
+                    continue
+                buf = os.read(fd, 48)
                 if len(buf) >= 48:
                     vals = struct.unpack("<IIiiiiiiiiii", buf[:48])
                     if vals[0] in (0x4D4F4443, 0x4D434850):
@@ -916,6 +925,12 @@ def _build_modchip_telemetry_json() -> dict:
                         break
             except Exception:
                 pass
+            finally:
+                if fd >= 0:
+                    try:
+                        os.close(fd)
+                    except OSError:
+                        pass
 
     slot_tokens = 0
     slot_state = "OFFLINE"
@@ -1138,11 +1153,11 @@ WEB_UI_HTML = """<!DOCTYPE html>
 <body>
 <header>
   <div class="brand">
-    <span>♟️ llama-modchip v2.1</span>
+    <span>♟️ llama-modchip v2.5.3</span>
     <span class="badge" id="status-badge">CONNECTING...</span>
   </div>
   <div style="font-family: var(--font-mono); font-size: 12px; color: var(--muted);" id="cpu-banner">
-    Probing CPU &amp; /dev/shm/llama_modchip.bin...
+    Probing CPU &amp; per-UID Modchip SHM...
   </div>
 </header>
 

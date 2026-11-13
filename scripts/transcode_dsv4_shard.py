@@ -1,4 +1,16 @@
 #!/usr/bin/env python3
+"""
+Transcode a multi-shard DeepSeek-V4-Flash-0731 GGUF donor (specifically
+unsloth/DeepSeek-V4-Flash-0731-GGUF UD-IQ1_S @ fbbb5b93, derived from
+deepseek-ai/DeepSeek-V4-Flash-0731 @ 7872f01b) into the 56.57 GiB
+DeepSeek-V4-Flash-0731-Fractal 3-shard layout:
+  - Dense Q8_0 MLA & Lightning Indexer projections -> Fractal-64 (GGML_TYPE_Q2_0 = 42, 3.75 bpw)
+  - Routed-MoE ffn_gate_exps / ffn_up_exps: preserves Unsloth's imatrix-calibrated IQ1_S on 70/129
+    tensors (plus IQ2_XXS anchors on layers {1, 4, 26, 28, 40})
+  - Routed-MoE ffn_down_exps: SwiGLU-H2 analytical second-moment transcoding (IQ1_S / IQ1_M / IQ2_XXS)
+Note: For pure single-pass quantization directly from deepseek-ai/DeepSeek-V4-Flash-0731 safetensors
+with zero GGUF donor transcoding, use scripts/build_dsv4_maxq_singlepass.py.
+"""
 import sys, os, struct, mmap, time, ctypes
 
 def _load_transcode_lib():

@@ -912,7 +912,7 @@ def evaluate_readiness(cpu, mem, measured_bw_gbs):
     elif not can_fit_q4_in_ram:
         tier = "TIER B+ — 16 GB COMPACT HOST (USE VQ3-64 13.30 GiB AT -c 32768)"
         summary = (
-            "16 GB RAM class detected: Q4_0 (17.59 GiB) would swap, so use NVIDIA-Nemotron-3.5-30B-A3B-VQ3-64.gguf "
+            "16 GB RAM class detected: Q4_0 (17.60 GiB) would swap, so use NVIDIA-Nemotron-3.5-30B-A3B-VQ3-64.gguf "
             "(13.30 GiB) with -c 32768 and close heavy desktop apps."
         )
     elif tool_json_tps >= 45.0:

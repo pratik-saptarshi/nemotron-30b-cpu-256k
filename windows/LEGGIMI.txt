@@ -1,5 +1,5 @@
 ================================================================================
-  llama-modchip v2.5.0 -- Pacchetto Windows
+  llama-modchip v2.5.3 -- Pacchetto Windows
   Modalita' 1 (AVVIA_MODCHIP.bat): Hybrid GPU + CPU MoE per modelli GGUF standard
   Modalita' 2 (AVVIA_DSV4.bat)   : Motore patchato CPU per Fractal-64 e LUT-VQ3-64
 ================================================================================

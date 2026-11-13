@@ -1,0 +1,45 @@
+FILE: DeepSeek-V4-Flash-0731-MaxQ-Fractal-00001-of-00003.gguf | size=5257952 | sha256=0ae64076077f88f5750d7e78403bbf0304a386c86912a47655eb3aaf627d2ce4
+  general.name = DeepSeek-V4-Flash-0731-MaxQ-Fractal-64GB
+  general.quantized_by = Synchopate (llama-modchip)
+  general.tags = ['llama-modchip', 'deepseek-v4', 'cpu-inference', 'fractal-64', '64gb']
+  general.base_model.0.name = DeepSeek-V4-Flash-0731
+  general.base_model.0.repo_url = https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash-0731
+  general.base_model.0.revision = 7872f01b1d1fe23eabc4c98b48bffcef5a386062
+  quantize.imatrix.file = antirez/deepseek-v4-gguf@f71f23d5/imatrix/DeepSeek-V4-Flash-chat-v2-routed-moe-ds4-1p5m.dat
+  quantize.imatrix.dataset = antirez DeepSeek-V4-Flash chat-v2 1.5M tokens (routed MoE)
+  quantize.imatrix.entries_count = 129
+  quantize.imatrix.chunks_count = 1
+FILE: DeepSeek-V4-Flash-0731-Abliterated-Fractal-00001-of-00003.gguf | size=5258016 | sha256=69b5bf614a56c119670b1b9535b71e46987e917928fbf09ac4631c3d202ef87f
+  general.name = DeepSeek-V4-Flash-0731-Abliterated-Fractal-64GB
+  general.quantized_by = Synchopate (llama-modchip)
+  general.tags = ['llama-modchip', 'deepseek-v4', 'cpu-inference', 'fractal-64', '64gb', 'abliterated']
+  general.base_model.0.name = DeepSeek-V4-Flash-0731-abliterated
+  general.base_model.0.repo_url = https://huggingface.co/prem-research/DeepSeek-V4-Flash-0731-abliterated
+  general.base_model.0.revision = 457210de3a9d27d8142407cd0dac7b6ed6ad9325
+  quantize.imatrix.file = antirez/deepseek-v4-gguf@f71f23d5/imatrix/DeepSeek-V4-Flash-chat-v2-routed-moe-ds4-1p5m.dat
+  quantize.imatrix.dataset = antirez DeepSeek-V4-Flash chat-v2 1.5M tokens (routed MoE)
+  quantize.imatrix.entries_count = 129
+  quantize.imatrix.chunks_count = 1
+FILE: DeepSeek-V4-Flash-0731-VQ3-00001-of-00003.gguf | size=5258016 | sha256=00ae0e9b0316ece06cd75afb7d0d49bcfa01fcfca3f3eb8f37d1e2b7c65e25bb
+  general.name = DeepSeek-V4-Flash-0731-VQ3-64GB
+  general.quantized_by = Synchopate (llama-modchip); routed-MoE gate/up donor: Unsloth (UD-IQ1_S @ fbbb5b93)
+  general.tags = ['llama-modchip', 'deepseek-v4', 'cpu-inference', 'vq3-64', '64gb']
+  general.base_model.0.name = DeepSeek-V4-Flash-0731
+  general.base_model.0.repo_url = https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash-0731
+  general.base_model.0.revision = 7872f01b1d1fe23eabc4c98b48bffcef5a386062
+  quantize.imatrix.file = unsloth/DeepSeek-V4-Flash-0731-GGUF@fbbb5b93/imatrix_unsloth.gguf (routed-MoE gate/up donor)
+  quantize.imatrix.dataset = unsloth_calibration_DeepSeek-V4-Flash-0731.txt + SwiGLU-H2 ffn_down_exps
+  quantize.imatrix.entries_count = 768
+  quantize.imatrix.chunks_count = 50
+FILE: DeepSeek-V4-Flash-0731-Fractal-00001-of-00003.gguf | size=5258016 | sha256=6f8e5e93faf86e61d2f378170139299477dee53a8bb8798011cf35566e30db25
+  general.name = DeepSeek-V4-Flash-0731-Fractal-64GB
+  general.quantized_by = Synchopate (llama-modchip); routed-MoE gate/up donor: Unsloth (UD-IQ1_S @ fbbb5b93)
+  general.tags = ['llama-modchip', 'deepseek-v4', 'cpu-inference', 'fractal-64', '64gb']
+  general.base_model.0.name = DeepSeek-V4-Flash-0731
+  general.base_model.0.repo_url = https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash-0731
+  general.base_model.0.revision = 7872f01b1d1fe23eabc4c98b48bffcef5a386062
+  quantize.imatrix.file = unsloth/DeepSeek-V4-Flash-0731-GGUF@fbbb5b93/imatrix_unsloth.gguf (routed-MoE gate/up donor)
+  quantize.imatrix.dataset = unsloth_calibration_DeepSeek-V4-Flash-0731.txt + SwiGLU-H2 ffn_down_exps
+  quantize.imatrix.entries_count = 768
+  quantize.imatrix.chunks_count = 50
+ALL_4_SHARD1_METADATA_CHECKS_OK

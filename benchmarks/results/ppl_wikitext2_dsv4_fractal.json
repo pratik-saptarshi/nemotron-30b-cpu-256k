@@ -1,0 +1,16 @@
+{
+  "timestamp": "2026-11-13T01:21:52+0000",
+  "label": "DeepSeek-V4-Flash-0731-Fractal",
+  "model": "DeepSeek-V4-Flash-0731-Fractal-00001-of-00003.gguf",
+  "model_sha256": "6f8e5e93faf86e61d2f378170139299477dee53a8bb8798011cf35566e30db25",
+  "perplexity": {
+    "ppl": 11.5288,
+    "ppl_std": 0.5563,
+    "ctx_size": 512,
+    "chunks": 16,
+    "eval_tokens": 8192,
+    "corpus": "wiki.test.raw",
+    "wall_sec": 234.6,
+    "model_sha256": "6f8e5e93faf86e61d2f378170139299477dee53a8bb8798011cf35566e30db25"
+  }
+}

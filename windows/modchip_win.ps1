@@ -22,7 +22,7 @@ if (-not (Test-Path $ModelDir)) { New-Item -ItemType Directory -Path $ModelDir |
 function Write-Banner {
     Clear-Host
     Write-Host "================================================================================" -ForegroundColor Cyan
-    Write-Host "  llama-modchip v2.5.2 -- Windows Hybrid GPU + CPU MoE Edition" -ForegroundColor Green
+    Write-Host "  llama-modchip v2.5.3 -- Windows Hybrid GPU + CPU MoE Edition" -ForegroundColor Green
     Write-Host "  Ottimizzato per NVIDIA RTX / AMD Vulkan (8-16 GB VRAM) + CPU (16-128 GB RAM)" -ForegroundColor White
     Write-Host "================================================================================" -ForegroundColor Cyan
 }
@@ -461,14 +461,17 @@ if ($nCpuMoe -gt 0) {
     $serverArgs += @("--n-cpu-moe", "$nCpuMoe")
 }
 
-# Configura il controllo MoE runtime L2-quadrature (%TEMP%\dsv4_moe_cfg.bin + LLAMA_MOE_TOP_K per Qwen/Nemotron; NON esportare DSV4_MOE_TOPK)
+# Configura il controllo MoE runtime L2-quadrature (per-user $LOCALAPPDATA\llama-modchip\dsv4_moe_cfg.bin via DSV4_MOE_CFG_PATH + LLAMA_MOE_TOP_K per Qwen/Nemotron; NON esportare DSV4_MOE_TOPK)
 Remove-Item Env:DSV4_MOE_TOPK -ErrorAction SilentlyContinue
 if ($MoeTopK -lt 6 -or $MoeMinW -gt 0.0) {
     $env:DSV4_MOE_MIN_W = "$MoeMinW"
     $env:LLAMA_MOE_TOP_K = "$MoeTopK"
 }
 try {
-    $cfgPath = Join-Path ([System.IO.Path]::GetTempPath()) "dsv4_moe_cfg.bin"
+    $cfgBase = if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA "llama-modchip" } else { Join-Path $ScriptDir "run" }
+    New-Item -ItemType Directory -Path $cfgBase -Force | Out-Null
+    $cfgPath = Join-Path $cfgBase "dsv4_moe_cfg.bin"
+    $env:DSV4_MOE_CFG_PATH = $cfgPath
     $ms = New-Object System.IO.MemoryStream
     $bw = New-Object System.IO.BinaryWriter($ms)
     $bw.Write([int32]$MoeTopK)

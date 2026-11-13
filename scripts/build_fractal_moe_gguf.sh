@@ -2,9 +2,9 @@
 # ==============================================================================
 # build_fractal_moe_gguf.sh — Asymmetric Dyadic Fractal-MoE Quantization Builder
 # ==============================================================================
-# Shrinks Nemotron-3.5-30B-A3B (or any Hybrid Mamba-2 + MoE GGUF) from 17.59 GiB
-# (18,015 MiB) down to 15.95 GiB (16,328 MiB, under the 16 GiB barrier) or
-# 14.35 GiB (14,698 MiB) WITHOUT losing reasoning quality, tool-calling schema
+# Shrinks Nemotron-3.5-30B-A3B (or any Hybrid Mamba-2 + MoE GGUF) from 17.60 GiB
+# (18,023 MiB) down to 15.95 GiB (16,328 MiB, under the 16 GiB barrier) or
+# 14.36 GiB (14,698 MiB) WITHOUT losing reasoning quality, tool-calling schema
 # precision, or Zen 5 AVX2/AVX-512 decode speed.
 #
 # Why K-quants / IQ3_S fail on Nemotron-3.5-30B-A3B:
@@ -34,7 +34,7 @@ set -euo pipefail
 usage() {
     cat <<'EOF'
 Usage:
-  # 1. Nemotron-3.5-30B-A3B (17.59 GiB -> 14.35 GiB Fractal-64 or 15.95 GiB MXFP4):
+  # 1. Nemotron-3.5-30B-A3B (17.60 GiB -> 14.36 GiB Fractal-64 or 15.95 GiB MXFP4):
   ./scripts/build_fractal_moe_gguf.sh \
     --input /path/to/input-model.gguf \
     --output /path/to/output-fractal-moe.gguf \
@@ -44,10 +44,11 @@ Usage:
     [--threads 16] \
     [--dry-run]
 
-  # 2. DeepSeek-V4-Flash-0731 (284.33B MoE: 76.87 GiB -> 56.56 GiB SwiGLU-H2 + Fractal-64):
+  # 2. DeepSeek-V4-Flash-0731-Fractal (284.33B MoE: 76.87 GiB Unsloth UD-IQ1_S @ fbbb5b93 -> 56.57 GiB SwiGLU-H2 + Fractal-64):
+  #    (Note: for the donor-free single-pass MaxQ-Fractal build directly from safetensors, use scripts/build_dsv4_maxq_singlepass.py)
   ./scripts/build_fractal_moe_gguf.sh \
     --deepseek \
-    --input /path/to/DeepSeek-V4-Flash-0731-UD-IQ1_S-00001-of-00003.gguf \
+    --input /path/to/DeepSeek-V4-Flash-0731-UD-IQ1_S-00001-of-00004.gguf \
     --output /path/to/DeepSeek-V4-Flash-0731-Fractal-00001-of-00003.gguf \
     [--llama-build-dir /path/to/llama.cpp/build]
 

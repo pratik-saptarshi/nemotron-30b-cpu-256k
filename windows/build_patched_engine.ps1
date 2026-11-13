@@ -30,6 +30,7 @@ $PatchFile  = if ($Target -eq "nemotron") {
     Join-Path $RepoRoot "patches\deepseek-v4-flash-fractal-256k.patch"
 }
 $Vq3Patch   = Join-Path $RepoRoot "patches\lut-vq3-64-avx512-vbmi.patch"
+$Dsv4IpcPatch = Join-Path $RepoRoot "patches\dsv4-ipc-hardening.patch"
 $HeadersDir = Join-Path $RepoRoot "speculative\cpp"
 $LlamaDir   = Join-Path $SrcRoot "llama.cpp-src"
 $OutDir     = Join-Path $WindowsDir "bin-modchip"
@@ -38,7 +39,7 @@ $BuildDir   = if ($Cuda) { Join-Path $LlamaDir "build-cuda" } else { Join-Path $
 function Fail([string]$Msg) { Write-Host "[!] $Msg" -ForegroundColor Red; exit 1 }
 
 Write-Host "================================================================================" -ForegroundColor Cyan
-Write-Host "  llama-modchip v2.5.0 Windows engine build (Fractal-64 Q2_0 + LUT-VQ3-64 VQ3_0)" -ForegroundColor Green
+Write-Host "  llama-modchip v2.5.3 Windows engine build (Fractal-64 Q2_0 + LUT-VQ3-64 VQ3_0)" -ForegroundColor Green
 Write-Host ("  Target : {0} | Backend: {1}" -f $Target, $(if ($Cuda) { "CUDA sm_$Arch + CPU (MSVC)" } else { "CPU AVX-512 (MinGW-w64)" })) -ForegroundColor Green
 Write-Host "================================================================================" -ForegroundColor Cyan
 
@@ -77,6 +78,14 @@ try {
         Write-Host "[*] Applying patches\lut-vq3-64-avx512-vbmi.patch (LUT-VQ3-64 VQ3_0) ..." -ForegroundColor Cyan
         & $git apply $Vq3Patch
         if ($LASTEXITCODE -ne 0) { Fail "LUT-VQ3-64 patch does not apply." }
+    }
+
+    if ($Target -ne "nemotron" -and (Test-Path $Dsv4IpcPatch)) {
+        & $git apply --check $Dsv4IpcPatch 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "[*] Applying patches\dsv4-ipc-hardening.patch ..." -ForegroundColor Cyan
+            & $git apply $Dsv4IpcPatch
+        }
     }
 
     Write-Host "[*] Copying RouteCrack headers into common\ ..." -ForegroundColor Cyan

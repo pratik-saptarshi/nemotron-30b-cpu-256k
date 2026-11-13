@@ -134,9 +134,26 @@ def measure_llama_rss_gib(base_url: str = "") -> Tuple[float, float]:
     try:
         out = subprocess.check_output(["ps", "-C", "llama-server,llama-server-nemotron", "-o", "rss="], text=True)
         for line in out.strip().splitlines():
-            rss_kb = max(rss_kb, int(line.strip()))
+            if line.strip().isdigit():
+                rss_kb = max(rss_kb, int(line.strip()))
     except Exception:
         pass
+    if rss_kb == 0:
+        try:
+            pids = subprocess.check_output(["pgrep", "-f", "llama-server"], text=True).splitlines()
+            for pid_s in pids:
+                pid_s = pid_s.strip()
+                if not pid_s.isdigit() or int(pid_s) == os.getpid():
+                    continue
+                status_path = f"/proc/{pid_s}/status"
+                if os.path.isfile(status_path):
+                    with open(status_path, "r", encoding="utf-8") as sf:
+                        for sline in sf:
+                            if sline.startswith("VmRSS:"):
+                                rss_kb = max(rss_kb, int(sline.split()[1]))
+                                break
+        except Exception:
+            pass
     try:
         with open("/proc/meminfo", "r", encoding="utf-8") as f:
             for line in f:

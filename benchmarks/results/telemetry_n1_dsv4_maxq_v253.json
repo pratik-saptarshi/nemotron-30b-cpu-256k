@@ -1,0 +1,33 @@
+{
+  "model": "DeepSeek-V4-Flash-0731-MaxQ-Fractal-v2.5.3",
+  "mode": "pure_N1_unpruned_Top6_no_spec",
+  "ctx_size": 32768,
+  "ubatch_size": 512,
+  "idle_rss_gib": 57.54,
+  "active_rss_gib": 57.58,
+  "cold_prefill_tps_mean": 36.11,
+  "pure_decode_tg64_tps_mean": 8.66,
+  "runs": [
+    {
+      "iter": 0,
+      "prompt_n": 67,
+      "prompt_per_second": 32.36,
+      "predicted_n": 64,
+      "predicted_per_second": 8.5
+    },
+    {
+      "iter": 1,
+      "prompt_n": 67,
+      "prompt_per_second": 36.43,
+      "predicted_n": 64,
+      "predicted_per_second": 8.63
+    },
+    {
+      "iter": 2,
+      "prompt_n": 67,
+      "prompt_per_second": 35.79,
+      "predicted_n": 64,
+      "predicted_per_second": 8.7
+    }
+  ]
+}

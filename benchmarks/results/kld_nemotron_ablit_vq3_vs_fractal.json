@@ -1,15 +1,45 @@
 {
-  "timestamp": "2026-11-12T11:28:37+0000",
+  "timestamp": "2026-11-13T00:53:07+0000",
+  "label": "NVIDIA-Nemotron-3.5-30B-A3B-Abliterated-VQ3-64",
+  "model_sha256": "456d5561acf609850c816fa15de7dbff93bd92430f64aadd85682dacc6f02fa4",
   "kld": {
-    "num_probes": 12,
-    "mean_kld_nats": 0.135659,
-    "equiv_ppl_delta_pct": 14.529,
-    "top1_agreement_pct": 75.0,
+    "num_probes": 32,
+    "mean_kld_nats": 0.074562,
+    "equiv_ppl_delta_pct": 7.741,
+    "top1_agreement_pct": 84.38,
     "top5_agreement_pct": 100.0,
+    "classic12_num_probes": 12,
+    "classic12_mean_kld_nats": 0.107692,
+    "prefix_matched_positions": 172,
+    "prefix_matched_mean_kld_nats": 0.085424,
+    "prefix_matched_equiv_ppl_delta_pct": 8.918,
+    "prefix_matched_top1_agreement_pct": 89.53,
+    "prefix_matched_top5_agreement_pct": 99.42,
+    "reference_model": {
+      "label": "NVIDIA-Nemotron-3.5-30B-A3B-Fractal-64",
+      "server_model_id": "/opt/models/nemotron/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-Fractal-64.gguf",
+      "model_file": "NVIDIA-Nemotron-3.5-Lightning-30B-A3B-Fractal-64.gguf",
+      "model_sha256": "71c22562ab908d5d3373e3a010544e977af2499e3cc476fc7646d402a8a550ee",
+      "num_probes": 32,
+      "steps_per_probe": 8,
+      "top_k": 64,
+      "timestamp": "2026-11-13T00:51:51+0000"
+    },
+    "candidate_model": {
+      "label": "NVIDIA-Nemotron-3.5-30B-A3B-Abliterated-VQ3-64",
+      "server_model_id": "/opt/models/deepseek-v4/lcc/NVIDIA-Nemotron-3.5-30B-A3B-Abliterated-VQ3-64.gguf",
+      "model_file": "NVIDIA-Nemotron-3.5-30B-A3B-Abliterated-VQ3-64.gguf",
+      "model_sha256": "456d5561acf609850c816fa15de7dbff93bd92430f64aadd85682dacc6f02fa4",
+      "num_probes": 32,
+      "steps_per_probe": 8,
+      "top_k": 64,
+      "timestamp": "2026-11-13T00:53:07+0000"
+    },
     "probes": [
       {
         "probe": "C_SIMD_Dot",
-        "kld_nats": 0.00758,
+        "kld_nats": 0.02716,
+        "matched_prefix_steps": 8,
         "ref_top1": "\n",
         "cand_top1": "\n",
         "top1_match": true,
@@ -17,7 +47,8 @@
       },
       {
         "probe": "Py_Async_Pool",
-        "kld_nats": 0.009382,
+        "kld_nats": 0.013949,
+        "matched_prefix_steps": 8,
         "ref_top1": " fn",
         "cand_top1": " fn",
         "top1_match": true,
@@ -25,7 +56,8 @@
       },
       {
         "probe": "Py_LRU_Lock",
-        "kld_nats": 0.353961,
+        "kld_nats": 0.116834,
+        "matched_prefix_steps": 8,
         "ref_top1": "keys",
         "cand_top1": "keys",
         "top1_match": true,
@@ -33,7 +65,8 @@
       },
       {
         "probe": "SQL_Window_Rank",
-        "kld_nats": 0.028668,
+        "kld_nats": 0.032123,
+        "matched_prefix_steps": 2,
         "ref_top1": "3",
         "cand_top1": "3",
         "top1_match": true,
@@ -41,7 +74,8 @@
       },
       {
         "probe": "Math_Euler_Totient",
-        "kld_nats": 0.020516,
+        "kld_nats": 0.0085,
+        "matched_prefix_steps": 8,
         "ref_top1": "3",
         "cand_top1": "3",
         "top1_match": true,
@@ -49,7 +83,8 @@
       },
       {
         "probe": "Systems_KV_Bandwidth",
-        "kld_nats": 0.00306,
+        "kld_nats": 0.005407,
+        "matched_prefix_steps": 2,
         "ref_top1": "6",
         "cand_top1": "6",
         "top1_match": true,
@@ -57,7 +92,8 @@
       },
       {
         "probe": "JSON_Tool_Schema",
-        "kld_nats": 0.087118,
+        "kld_nats": 0.071629,
+        "matched_prefix_steps": 8,
         "ref_top1": "1",
         "cand_top1": "1",
         "top1_match": true,
@@ -65,7 +101,8 @@
       },
       {
         "probe": "Rust_Lifetime_Slice",
-        "kld_nats": 0.230169,
+        "kld_nats": 0.19601,
+        "matched_prefix_steps": 1,
         "ref_top1": "4",
         "cand_top1": "1",
         "top1_match": false,
@@ -73,7 +110,8 @@
       },
       {
         "probe": "Linux_Proc_Meminfo",
-        "kld_nats": 0.034783,
+        "kld_nats": 0.028155,
+        "matched_prefix_steps": 8,
         "ref_top1": "\n",
         "cand_top1": "\n",
         "top1_match": true,
@@ -81,15 +119,17 @@
       },
       {
         "probe": "Quant_Lloyd_Max",
-        "kld_nats": 0.078678,
-        "ref_top1": "8",
+        "kld_nats": 0.080752,
+        "matched_prefix_steps": 1,
+        "ref_top1": "3",
         "cand_top1": "1",
         "top1_match": false,
         "top5_match": true
       },
       {
         "probe": "Algo_Dijkstra_Heap",
-        "kld_nats": 0.57933,
+        "kld_nats": 0.353718,
+        "matched_prefix_steps": 1,
         "ref_top1": "v",
         "cand_top1": " v",
         "top1_match": false,
@@ -97,7 +137,188 @@
       },
       {
         "probe": "HTTP_Chunked_Parser",
-        "kld_nats": 0.194659,
+        "kld_nats": 0.35807,
+        "matched_prefix_steps": 2,
+        "ref_top1": "\n",
+        "cand_top1": "\n",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "CPP_RingBuffer_Acquire",
+        "kld_nats": 0.279142,
+        "matched_prefix_steps": 1,
+        "ref_top1": "ac",
+        "cand_top1": "sequ",
+        "top1_match": false,
+        "top5_match": true
+      },
+      {
+        "probe": "Go_Context_Cancel",
+        "kld_nats": 0.087664,
+        "matched_prefix_steps": 4,
+        "ref_top1": " cancel",
+        "cand_top1": " cancel",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "SQL_Recursive_CTE",
+        "kld_nats": 0.012731,
+        "matched_prefix_steps": 8,
+        "ref_top1": " t",
+        "cand_top1": " t",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "Math_Geometric_Series",
+        "kld_nats": 3.9e-05,
+        "matched_prefix_steps": 8,
+        "ref_top1": "1",
+        "cand_top1": "1",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "Math_Eigen_Trace",
+        "kld_nats": 0.020596,
+        "matched_prefix_steps": 8,
+        "ref_top1": "2",
+        "cand_top1": "2",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "Py_Bisect_JobDP",
+        "kld_nats": 0.119806,
+        "matched_prefix_steps": 8,
+        "ref_top1": " w",
+        "cand_top1": " w",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "C_Mmap_Hugepage",
+        "kld_nats": 0.00782,
+        "matched_prefix_steps": 7,
+        "ref_top1": "1",
+        "cand_top1": "1",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "Rust_Iter_Fold",
+        "kld_nats": 0.143894,
+        "matched_prefix_steps": 8,
+        "ref_top1": " acc",
+        "cand_top1": " acc",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "JSON_Bash_ToolCall",
+        "kld_nats": 0.004213,
+        "matched_prefix_steps": 5,
+        "ref_top1": "3",
+        "cand_top1": "3",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "POSIX_Open_NoFollow",
+        "kld_nats": 0.075524,
+        "matched_prefix_steps": 6,
+        "ref_top1": " `",
+        "cand_top1": " `",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "Numerical_LogSumExp",
+        "kld_nats": 0.028069,
+        "matched_prefix_steps": 8,
+        "ref_top1": " m",
+        "cand_top1": " m",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "Compiler_SSA_Phi",
+        "kld_nats": 3e-06,
+        "matched_prefix_steps": 4,
+        "ref_top1": "\ufffd",
+        "cand_top1": "\ufffd",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "TCP_Congestion_BBR",
+        "kld_nats": 0.08368,
+        "matched_prefix_steps": 1,
+        "ref_top1": "\n",
+        "cand_top1": " time",
+        "top1_match": false,
+        "top5_match": true
+      },
+      {
+        "probe": "Arch_AVX512_VBMI",
+        "kld_nats": 0.03974,
+        "matched_prefix_steps": 8,
+        "ref_top1": "5",
+        "cand_top1": "5",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "Py_Tarjan_Topo",
+        "kld_nats": 4e-06,
+        "matched_prefix_steps": 8,
+        "ref_top1": "2",
+        "cand_top1": "2",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "DB_MVCC_Snapshot",
+        "kld_nats": 0.06033,
+        "matched_prefix_steps": 3,
+        "ref_top1": " start",
+        "cand_top1": " start",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "Crypto_HMAC_ConstTime",
+        "kld_nats": 0.016505,
+        "matched_prefix_steps": 8,
+        "ref_top1": "hex",
+        "cand_top1": "hex",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "LLM_Mamba_State",
+        "kld_nats": 0.040554,
+        "matched_prefix_steps": 8,
+        "ref_top1": " size",
+        "cand_top1": " size",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "Bash_Trap_Cleanup",
+        "kld_nats": 0.03287,
+        "matched_prefix_steps": 2,
+        "ref_top1": "0",
+        "cand_top1": "0",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "Italian_Quant_Prose",
+        "kld_nats": 0.04049,
+        "matched_prefix_steps": 2,
         "ref_top1": "\n",
         "cand_top1": "\n",
         "top1_match": true,

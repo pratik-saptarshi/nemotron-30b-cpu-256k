@@ -36,7 +36,7 @@
 
 namespace {
 
-// Live-tunable Shared Memory Control Block (/dev/shm/llama_modchip.bin)
+// Live-tunable Shared Memory Control Block ($XDG_RUNTIME_DIR/llama_modchip.bin or /dev/shm/llama_modchip_<uid>.bin)
 struct rc_modchip_shm_t {
     uint32_t magic;            // 0x4D4F4443 ("MODC")
     uint32_t version;          // 1
@@ -59,21 +59,30 @@ static const rc_modchip_shm_t * get_rc_modchip_shm() {
     if (!tried) {
         tried = true;
         int fd = -1;
-        const char * xdg = std::getenv("XDG_RUNTIME_DIR");
-        if (xdg && xdg[0]) {
-            char path_buf[512];
-            std::snprintf(path_buf, sizeof(path_buf), "%s/llama_modchip.bin", xdg);
-            fd = open(path_buf, O_RDONLY | O_NOFOLLOW);
+        const char * custom_shm = std::getenv("MODCHIP_SHM_PATH");
+        if (custom_shm && custom_shm[0]) {
+            fd = open(custom_shm, O_RDONLY | O_NOFOLLOW);
         }
         if (fd < 0) {
-            fd = open("/dev/shm/llama_modchip.bin", O_RDONLY | O_NOFOLLOW);
+            const char * xdg = std::getenv("XDG_RUNTIME_DIR");
+            if (xdg && xdg[0]) {
+                char path_buf[512];
+                std::snprintf(path_buf, sizeof(path_buf), "%s/llama_modchip.bin", xdg);
+                fd = open(path_buf, O_RDONLY | O_NOFOLLOW);
+            }
+        }
+        if (fd < 0) {
+            char uid_buf[128];
+            std::snprintf(uid_buf, sizeof(uid_buf), "/dev/shm/llama_modchip_%u.bin", (unsigned)geteuid());
+            fd = open(uid_buf, O_RDONLY | O_NOFOLLOW);
         }
         if (fd >= 0) {
             struct stat st;
             if (fstat(fd, &st) == 0 &&
                 S_ISREG(st.st_mode) &&
                 st.st_size >= (off_t)sizeof(rc_modchip_shm_t) &&
-                st.st_uid == getuid()) {
+                st.st_uid == geteuid() &&
+                (st.st_mode & 0022) == 0) {
                 void * p = mmap(nullptr, sizeof(rc_modchip_shm_t), PROT_READ, MAP_SHARED, fd, 0);
                 if (p != MAP_FAILED) {
                     const rc_modchip_shm_t * s = reinterpret_cast<const rc_modchip_shm_t *>(p);

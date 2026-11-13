@@ -1,0 +1,330 @@
+{
+  "timestamp": "2026-11-13T01:14:53+0000",
+  "label": "DeepSeek-V4-Flash-0731-Fractal",
+  "model": "DeepSeek-V4-Flash-0731-Fractal-00001-of-00003.gguf",
+  "model_sha256": "6f8e5e93faf86e61d2f378170139299477dee53a8bb8798011cf35566e30db25",
+  "kld": {
+    "num_probes": 32,
+    "mean_kld_nats": 0.843687,
+    "equiv_ppl_delta_pct": 132.492,
+    "top1_agreement_pct": 56.25,
+    "top5_agreement_pct": 81.25,
+    "classic12_num_probes": 12,
+    "classic12_mean_kld_nats": 1.096552,
+    "prefix_matched_positions": 101,
+    "prefix_matched_mean_kld_nats": 0.43729,
+    "prefix_matched_equiv_ppl_delta_pct": 54.85,
+    "prefix_matched_top1_agreement_pct": 74.26,
+    "prefix_matched_top5_agreement_pct": 94.06,
+    "reference_model": {
+      "label": "DeepSeek-V4-Flash-0731-MaxQ-Fractal-v2.5.3",
+      "server_model_id": "/opt/models/deepseek-v4/lcc/DeepSeek-V4-Flash-0731-MaxQ-Fractal-00001-of-00003.gguf",
+      "model_file": "DeepSeek-V4-Flash-0731-MaxQ-Fractal-00001-of-00003.gguf",
+      "model_sha256": "0ae64076077f88f5750d7e78403bbf0304a386c86912a47655eb3aaf627d2ce4",
+      "num_probes": 32,
+      "steps_per_probe": 8,
+      "top_k": 64,
+      "timestamp": "2026-11-13T00:54:30+0000"
+    },
+    "candidate_model": {
+      "label": "DeepSeek-V4-Flash-0731-Fractal",
+      "server_model_id": "/opt/models/deepseek-v4/DeepSeek-V4-Flash-0731-Fractal-00001-of-00003.gguf",
+      "model_file": "DeepSeek-V4-Flash-0731-Fractal-00001-of-00003.gguf",
+      "model_sha256": "6f8e5e93faf86e61d2f378170139299477dee53a8bb8798011cf35566e30db25",
+      "num_probes": 32,
+      "steps_per_probe": 8,
+      "top_k": 64,
+      "timestamp": "2026-11-13T01:14:53+0000"
+    },
+    "probes": [
+      {
+        "probe": "C_SIMD_Dot",
+        "kld_nats": 0.086924,
+        "matched_prefix_steps": 8,
+        "ref_top1": " _",
+        "cand_top1": " _",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "Py_Async_Pool",
+        "kld_nats": 0.685331,
+        "matched_prefix_steps": 1,
+        "ref_top1": " fn",
+        "cand_top1": "2",
+        "top1_match": false,
+        "top5_match": true
+      },
+      {
+        "probe": "Py_LRU_Lock",
+        "kld_nats": 1.13757,
+        "matched_prefix_steps": 8,
+        "ref_top1": " key",
+        "cand_top1": " key",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "SQL_Window_Rank",
+        "kld_nats": 0.766803,
+        "matched_prefix_steps": 1,
+        "ref_top1": "10",
+        "cand_top1": "3",
+        "top1_match": false,
+        "top5_match": true
+      },
+      {
+        "probe": "Math_Euler_Totient",
+        "kld_nats": 0.033614,
+        "matched_prefix_steps": 4,
+        "ref_top1": "8",
+        "cand_top1": "8",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "Systems_KV_Bandwidth",
+        "kld_nats": 0.22705,
+        "matched_prefix_steps": 3,
+        "ref_top1": "612",
+        "cand_top1": "612",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "JSON_Tool_Schema",
+        "kld_nats": 4.928345,
+        "matched_prefix_steps": 1,
+        "ref_top1": "0",
+        "cand_top1": " false",
+        "top1_match": false,
+        "top5_match": false
+      },
+      {
+        "probe": "Rust_Lifetime_Slice",
+        "kld_nats": 0.663063,
+        "matched_prefix_steps": 3,
+        "ref_top1": "0",
+        "cand_top1": "0",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "Linux_Proc_Meminfo",
+        "kld_nats": 2.127802,
+        "matched_prefix_steps": 1,
+        "ref_top1": "47",
+        "cand_top1": " (",
+        "top1_match": false,
+        "top5_match": false
+      },
+      {
+        "probe": "Quant_Lloyd_Max",
+        "kld_nats": 0.59095,
+        "matched_prefix_steps": 1,
+        "ref_top1": "8",
+        "cand_top1": "1",
+        "top1_match": false,
+        "top5_match": true
+      },
+      {
+        "probe": "Algo_Dijkstra_Heap",
+        "kld_nats": 1.713286,
+        "matched_prefix_steps": 5,
+        "ref_top1": "?",
+        "cand_top1": "?",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "HTTP_Chunked_Parser",
+        "kld_nats": 0.197886,
+        "matched_prefix_steps": 2,
+        "ref_top1": " smuggling",
+        "cand_top1": " smuggling",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "CPP_RingBuffer_Acquire",
+        "kld_nats": 3.1e-05,
+        "matched_prefix_steps": 3,
+        "ref_top1": "acqu",
+        "cand_top1": "acqu",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "Go_Context_Cancel",
+        "kld_nats": 1.430117,
+        "matched_prefix_steps": 1,
+        "ref_top1": "\u53d6\u6d88",
+        "cand_top1": " cancel",
+        "top1_match": false,
+        "top5_match": true
+      },
+      {
+        "probe": "SQL_Recursive_CTE",
+        "kld_nats": 0.169508,
+        "matched_prefix_steps": 8,
+        "ref_top1": " t",
+        "cand_top1": " t",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "Math_Geometric_Series",
+        "kld_nats": 0.000256,
+        "matched_prefix_steps": 8,
+        "ref_top1": "1",
+        "cand_top1": "1",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "Math_Eigen_Trace",
+        "kld_nats": 0.316684,
+        "matched_prefix_steps": 2,
+        "ref_top1": "28",
+        "cand_top1": "28",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "Py_Bisect_JobDP",
+        "kld_nats": 2.323592,
+        "matched_prefix_steps": 1,
+        "ref_top1": "1",
+        "cand_top1": " w",
+        "top1_match": false,
+        "top5_match": true
+      },
+      {
+        "probe": "C_Mmap_Hugepage",
+        "kld_nats": 0.37043,
+        "matched_prefix_steps": 1,
+        "ref_top1": "1",
+        "cand_top1": "16",
+        "top1_match": false,
+        "top5_match": true
+      },
+      {
+        "probe": "Rust_Iter_Fold",
+        "kld_nats": 0.21476,
+        "matched_prefix_steps": 2,
+        "ref_top1": "0",
+        "cand_top1": "0",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "JSON_Bash_ToolCall",
+        "kld_nats": 0.895484,
+        "matched_prefix_steps": 1,
+        "ref_top1": "600",
+        "cand_top1": "10",
+        "top1_match": false,
+        "top5_match": false
+      },
+      {
+        "probe": "POSIX_Open_NoFollow",
+        "kld_nats": 0.344037,
+        "matched_prefix_steps": 4,
+        "ref_top1": " `",
+        "cand_top1": " `",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "Numerical_LogSumExp",
+        "kld_nats": 0.294917,
+        "matched_prefix_steps": 8,
+        "ref_top1": " m",
+        "cand_top1": " m",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "Compiler_SSA_Phi",
+        "kld_nats": 0.994828,
+        "matched_prefix_steps": 1,
+        "ref_top1": " \\",
+        "cand_top1": "1",
+        "top1_match": false,
+        "top5_match": false
+      },
+      {
+        "probe": "TCP_Congestion_BBR",
+        "kld_nats": 1.758317,
+        "matched_prefix_steps": 1,
+        "ref_top1": "0",
+        "cand_top1": "\u5ef6\u8fdf",
+        "top1_match": false,
+        "top5_match": false
+      },
+      {
+        "probe": "Arch_AVX512_VBMI",
+        "kld_nats": 0.923639,
+        "matched_prefix_steps": 1,
+        "ref_top1": " instruction",
+        "cand_top1": "512",
+        "top1_match": false,
+        "top5_match": false
+      },
+      {
+        "probe": "Py_Tarjan_Topo",
+        "kld_nats": 0.000153,
+        "matched_prefix_steps": 8,
+        "ref_top1": "2",
+        "cand_top1": "2",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "DB_MVCC_Snapshot",
+        "kld_nats": 0.690798,
+        "matched_prefix_steps": 1,
+        "ref_top1": " start",
+        "cand_top1": " `",
+        "top1_match": false,
+        "top5_match": true
+      },
+      {
+        "probe": "Crypto_HMAC_ConstTime",
+        "kld_nats": 0.097414,
+        "matched_prefix_steps": 6,
+        "ref_top1": "hex",
+        "cand_top1": "hex",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "LLM_Mamba_State",
+        "kld_nats": 0.671395,
+        "matched_prefix_steps": 1,
+        "ref_top1": " size",
+        "cand_top1": "2",
+        "top1_match": false,
+        "top5_match": true
+      },
+      {
+        "probe": "Bash_Trap_Cleanup",
+        "kld_nats": 0.238338,
+        "matched_prefix_steps": 3,
+        "ref_top1": "0",
+        "cand_top1": "0",
+        "top1_match": true,
+        "top5_match": true
+      },
+      {
+        "probe": "Italian_Quant_Prose",
+        "kld_nats": 2.104669,
+        "matched_prefix_steps": 2,
+        "ref_top1": "rie",
+        "cand_top1": "rie",
+        "top1_match": true,
+        "top5_match": true
+      }
+    ]
+  }
+}

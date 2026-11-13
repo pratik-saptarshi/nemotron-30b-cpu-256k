@@ -10,8 +10,10 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 TARGET_MODEL="${TARGET_MODEL:-nemotron}"
 if [[ "$TARGET_MODEL" == "dsv4" || "$TARGET_MODEL" == "deepseek" ]]; then
     PATCH_FILE="${REPO_ROOT}/patches/deepseek-v4-flash-fractal-256k.patch"
+    DSV4_IPC_PATCH="${REPO_ROOT}/patches/dsv4-ipc-hardening.patch"
 else
     PATCH_FILE="${REPO_ROOT}/patches/zen5-nemotron-256k-optimizations.patch"
+    DSV4_IPC_PATCH=""
 fi
 VQ3_PATCH="${REPO_ROOT}/patches/lut-vq3-64-avx512-vbmi.patch"
 # patches stacked on top of PATCH_FILE, applied in file-name order
@@ -93,9 +95,13 @@ VQ3_ALREADY_APPLIED=0
 if [[ -f "$VQ3_PATCH" ]] && git -C "$LLAMA_DIR" apply --reverse --check "$VQ3_PATCH" 2>/dev/null; then
     VQ3_ALREADY_APPLIED=1
 fi
+IPC_ALREADY_APPLIED=0
+if [[ -n "$DSV4_IPC_PATCH" && -f "$DSV4_IPC_PATCH" ]] && git -C "$LLAMA_DIR" apply --reverse --check "$DSV4_IPC_PATCH" 2>/dev/null; then
+    IPC_ALREADY_APPLIED=1
+fi
 
 echo "[*] Applying 256K Hybrid SWA + Fractal-64 SIMD/Metal + L3 NTA + 2MB HugePages patch ($(basename "$PATCH_FILE"))..."
-if [[ "$SERIES_APPLIED" == "1" || "$VQ3_ALREADY_APPLIED" == "1" ]]; then
+if [[ "$SERIES_APPLIED" == "1" || "$VQ3_ALREADY_APPLIED" == "1" || "$IPC_ALREADY_APPLIED" == "1" ]]; then
     echo "[i] Base patch and stacked patches already applied cleanly in $LLAMA_DIR."
 elif git -C "$LLAMA_DIR" apply --reverse --check "$PATCH_FILE" 2>/dev/null; then
     echo "[i] Patch already applied cleanly in $LLAMA_DIR."
@@ -149,6 +155,20 @@ if [[ -f "$VQ3_PATCH" ]]; then
     else
         echo "[!] ERROR: Failed to apply $VQ3_PATCH onto $LLAMA_DIR." >&2
         exit 1
+    fi
+fi
+
+if [[ -n "$DSV4_IPC_PATCH" && -f "$DSV4_IPC_PATCH" ]]; then
+    if [[ "$IPC_ALREADY_APPLIED" == "1" ]] || git -C "$LLAMA_DIR" apply --reverse --check "$DSV4_IPC_PATCH" 2>/dev/null; then
+        echo "[i] DSV4 IPC hardening patch already applied in $LLAMA_DIR."
+    elif git -C "$LLAMA_DIR" apply --check "$DSV4_IPC_PATCH" 2>/dev/null; then
+        git -C "$LLAMA_DIR" apply "$DSV4_IPC_PATCH"
+        echo "[+] Applied patches/dsv4-ipc-hardening.patch (per-UID SHM + opt-in 0600 MoE config)."
+    elif [[ "${PORTABLE_STATIC:-0}" == "1" ]]; then
+        echo "[!] ERROR: Failed to apply $DSV4_IPC_PATCH onto $LLAMA_DIR during portable build." >&2
+        exit 1
+    else
+        echo "[!] WARNING: Could not apply $(basename "$DSV4_IPC_PATCH") cleanly (local edits in $(basename "$PATCH_FILE")?); continuing." >&2
     fi
 fi
 
@@ -266,7 +286,7 @@ CMAKE_ISA_ARGS+=(
 )
 
 # BUILD_TESTS=1 (default off) also builds test-quantize-fns and test-backend-ops
-BUILD_TARGETS=(llama-server llama-quantize llama-bench llama-perplexity)
+BUILD_TARGETS=(llama-server llama-cli llama-quantize llama-bench llama-perplexity)
 if [[ "${BUILD_TESTS:-0}" == "1" ]]; then
     CMAKE_ISA_ARGS+=(-DLLAMA_BUILD_TESTS=ON)
     BUILD_TARGETS+=(test-quantize-fns test-backend-ops)

@@ -12,7 +12,7 @@
 #   ./modchip quantize [args]       # Build VQ3-64 (13.30 GiB), Fractal-64 (14.35 GiB) or MXFP4 (15.95 GiB) GGUF
 #   ./modchip web                   # Open Live Web Chat & Telemetry HUD (http://127.0.0.1:8787)
 #   ./modchip claude [args]         # Launch Claude Code CLI wired to local CPU engine
-#   ./modchip status                # Inspect live server, HugePages & /dev/shm/llama_modchip.bin
+#   ./modchip status                # Inspect live server, HugePages & per-UID Modchip SHM
 #   ./modchip tui                   # Launch interactive Curses TUI controller
 #   ./modchip stop                  # Stop background server & gateway
 # ==============================================================================
@@ -311,7 +311,7 @@ cmd_start() {
     fi
 
     echo -e "${BOLD}${GREEN}╔══════════════════════════════════════════════════════════════════════════════╗${RESET}"
-    echo -e "${BOLD}${GREEN}║    llama-modchip v2.5.2 is LIVE — Choose how you want to interact:           ║${RESET}"
+    echo -e "${BOLD}${GREEN}║    llama-modchip v2.5.3 is LIVE — Choose how you want to interact:           ║${RESET}"
     echo -e "${BOLD}${GREEN}╠══════════════════════════════════════════════════════════════════════════════╣${RESET}"
     echo -e "  🌐 ${BOLD}Live Web Chat & Telemetry HUD${RESET} : ${CYAN}http://${GATEWAY_HOST}:${GATEWAY_PORT}${RESET}"
     echo -e "  💬 ${BOLD}Interactive Terminal Chat${RESET}     : ${GREEN}./modchip chat${RESET}"
@@ -527,20 +527,20 @@ cmd_download_bin() {
     local flags=""
     [[ -r /proc/cpuinfo ]] && flags="$(grep -m1 -E '^flags' /proc/cpuinfo || true)"
     local isa_suffix="avx2"
-    local srv_sha256="0001a63c29b2eb3a9438008c8757336b392eb647ef4cd966af7f6b295c527c64"
-    local cli_sha256="d1f65c6159e9a732ce906caafaceab6027426858c4c1137abc63f3bed8f415dd"
+    local srv_sha256="09f2a1accacb1454aaf0d9a8d75dda8f7cca36df81138eb57bfee45137ef07e4"
+    local cli_sha256="c9fe218d3be566e38c7677c903013ee6d90fa3663aa87d3bbc78c2109e8ac2c4"
     if echo "$flags" | grep -q "avx512f" && echo "$flags" | grep -qE "avx512_?vbmi"; then
         isa_suffix="avx512"
-        srv_sha256="fffd7dad3fe28c45d8b9f42c5067e14431ace1b77eeac5106cb0a9948c7d5bc2"
-        cli_sha256="f312a0e82d2b4e43fc9d40c0302e187a74d24f85a80d012e1ac6ae5eea2958f1"
+        srv_sha256="85fe1e2a780ce7c88d99cf5f6fa384c2726dfeee247460924d6bf937efd19597"
+        cli_sha256="883e6d3ca4d33d716c273962e04ec945b83759332e84ac1e35838af3efdb7a8e"
     elif ! echo "$flags" | grep -q "avx2"; then
         echo -e "${YELLOW}[!] CPU lacks AVX2; run './modchip setup' to compile scalar/AVX1 fallback from source.${RESET}"
         exit 1
     fi
     local srv_asset="llama-server-modchip-linux-x86_64-${isa_suffix}"
     local cli_asset="llama-cli-modchip-linux-x86_64-${isa_suffix}"
-    local base_url="https://github.com/synchopate/llama-modchip/releases/download/v2.5.2"
-    local fallback_url="https://github.com/synchopate/llama-modchip/releases/download/v2.5.1"
+    local base_url="https://github.com/synchopate/llama-modchip/releases/download/v2.5.3"
+    local fallback_url="https://huggingface.co/Synchopate/DeepSeek-V4-Flash-0731-MaxQ-Fractal-64GB-CPU-GGUF/resolve/7b65f11ccb0e867e3156118d84e2b08657621601"
     echo -e "${CYAN}[*] CPUID detected '${isa_suffix}' ISA — downloading portable ${srv_asset} & ${cli_asset}...${RESET}"
     curl -fL --progress-bar -o "${dest_dir}/${srv_asset}.part" "${base_url}/${srv_asset}" \
         || curl -fL --progress-bar -o "${dest_dir}/${srv_asset}.part" "${fallback_url}/${srv_asset}"

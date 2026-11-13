@@ -42,6 +42,10 @@ for p in "$REPO"/patches/apple-silicon/*.patch; do
     echo "[build-dsv4-engine] applying $(basename "$p")" >&2
     git apply "$p"
 done
+if [[ -f "$REPO/patches/dsv4-ipc-hardening.patch" ]]; then
+    echo "[build-dsv4-engine] applying dsv4-ipc-hardening.patch" >&2
+    git apply "$REPO/patches/dsv4-ipc-hardening.patch"
+fi
 
 if [[ "${BUILD:-1}" == 0 ]]; then
     echo "[build-dsv4-engine] source tree ready in $DEST (BUILD=0)" >&2

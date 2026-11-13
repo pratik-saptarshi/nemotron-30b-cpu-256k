@@ -1,0 +1,192 @@
+diff --git a/common/ngram-map.cpp b/common/ngram-map.cpp
+index 228c3cfd6..429ef7031 100644
+--- a/common/ngram-map.cpp
++++ b/common/ngram-map.cpp
+@@ -12,6 +12,7 @@
+ #if defined(__linux__)
+ #include <fcntl.h>
+ #include <sys/mman.h>
++#include <sys/stat.h>
+ #include <unistd.h>
+ #endif
+ 
+@@ -57,13 +58,42 @@ static const rc_modchip_shm_t * get_rc_modchip_shm() {
+     static bool tried = false;
+     if (!tried) {
+         tried = true;
+-        int fd = open("/dev/shm/llama_modchip.bin", O_RDONLY);
++        int fd = -1;
++        const char * custom_shm = std::getenv("MODCHIP_SHM_PATH");
++        if (custom_shm && custom_shm[0]) {
++            fd = open(custom_shm, O_RDONLY | O_NOFOLLOW);
++        }
++        if (fd < 0) {
++            const char * xdg = std::getenv("XDG_RUNTIME_DIR");
++            if (xdg && xdg[0]) {
++                char path_buf[512];
++                std::snprintf(path_buf, sizeof(path_buf), "%s/llama_modchip.bin", xdg);
++                fd = open(path_buf, O_RDONLY | O_NOFOLLOW);
++            }
++        }
++        if (fd < 0) {
++            char uid_buf[128];
++            std::snprintf(uid_buf, sizeof(uid_buf), "/dev/shm/llama_modchip_%u.bin", (unsigned)geteuid());
++            fd = open(uid_buf, O_RDONLY | O_NOFOLLOW);
++        }
+         if (fd >= 0) {
+-            void * p = mmap(nullptr, sizeof(rc_modchip_shm_t), PROT_READ, MAP_SHARED, fd, 0);
+-            close(fd);
+-            if (p != MAP_FAILED) {
+-                shm_ptr = reinterpret_cast<const rc_modchip_shm_t *>(p);
++            struct stat st;
++            if (fstat(fd, &st) == 0 &&
++                S_ISREG(st.st_mode) &&
++                st.st_size >= (off_t)sizeof(rc_modchip_shm_t) &&
++                st.st_uid == geteuid() &&
++                (st.st_mode & 0022) == 0) {
++                void * p = mmap(nullptr, sizeof(rc_modchip_shm_t), PROT_READ, MAP_SHARED, fd, 0);
++                if (p != MAP_FAILED) {
++                    const rc_modchip_shm_t * s = reinterpret_cast<const rc_modchip_shm_t *>(p);
++                    if (s->magic == 0x4D4F4443u) {
++                        shm_ptr = s;
++                    } else {
++                        munmap(p, sizeof(rc_modchip_shm_t));
++                    }
++                }
+             }
++            close(fd);
+         }
+     }
+     if (shm_ptr && shm_ptr->magic == 0x4D4F4443u) {
+diff --git a/ggml/src/ggml-cpu/ggml-cpu.c b/ggml/src/ggml-cpu/ggml-cpu.c
+index c46583364..491fdb046 100644
+--- a/ggml/src/ggml-cpu/ggml-cpu.c
++++ b/ggml/src/ggml-cpu/ggml-cpu.c
+@@ -3634,11 +3634,9 @@ static thread_ret_t ggml_graph_compute_thread(void * data) {
+             s_moe_min_w = (ew && atof(ew) > 0.0) ? (float)atof(ew) : 0.0f;
+             int32_t init_cfg[8] = {tk, tk, (int32_t)(s_moe_min_w * 10000.0f), 3, 43, 1, 0, 0};
+ #ifdef _WIN32
+-            char cfg_path[MAX_PATH];
+-            DWORD tlen = GetTempPathA(MAX_PATH, cfg_path);
+-            if (tlen > 0 && tlen < MAX_PATH - 24) {
+-                strcat(cfg_path, "dsv4_moe_cfg.bin");
+-                HANDLE hFile = CreateFileA(cfg_path, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
++            const char * custom_cfg = getenv("DSV4_MOE_CFG_PATH");
++            if (custom_cfg && custom_cfg[0]) {
++                HANDLE hFile = CreateFileA(custom_cfg, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+                 if (hFile != INVALID_HANDLE_VALUE) {
+                     if (GetFileSize(hFile, NULL) < 32) {
+                         DWORD written = 0;
+@@ -3657,28 +3655,23 @@ static thread_ret_t ggml_graph_compute_thread(void * data) {
+             }
+ #else
+             const char * custom_cfg = getenv("DSV4_MOE_CFG_PATH");
+-            const char * cfg_path = (custom_cfg && custom_cfg[0]) ? custom_cfg : "/tmp/dsv4_moe_cfg.bin";
+-            int open_flags = O_RDWR | O_CREAT;
++            if (custom_cfg && custom_cfg[0]) {
++                int open_flags = O_RDWR | O_CREAT;
+ #ifdef O_NOFOLLOW
+-            open_flags |= O_NOFOLLOW;
++                open_flags |= O_NOFOLLOW;
+ #endif
+-            int fd = open(cfg_path, open_flags, 0666);
+-            if (fd >= 0) {
+-                (void) fchmod(fd, 0666);
+-                if (lseek(fd, 0, SEEK_END) < 32) {
+-                    if (write(fd, init_cfg, sizeof(init_cfg)) != sizeof(init_cfg)) {}
+-                }
+-                void * mp = mmap(NULL, 32, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+-                if (mp != MAP_FAILED) {
+-                    s_moe_cfg_mmap = (volatile int32_t *) mp;
+-                }
+-                close(fd);
+-            } else {
+-                fd = open(cfg_path, O_RDONLY);
++                int fd = open(custom_cfg, open_flags, 0600);
+                 if (fd >= 0) {
+-                    void * mp = mmap(NULL, 32, PROT_READ, MAP_SHARED, fd, 0);
+-                    if (mp != MAP_FAILED) {
+-                        s_moe_cfg_mmap = (volatile int32_t *) mp;
++                    struct stat st;
++                    if (fstat(fd, &st) == 0 && S_ISREG(st.st_mode) && st.st_uid == geteuid()) {
++                        (void) fchmod(fd, 0600);
++                        if (st.st_size < 32) {
++                            if (write(fd, init_cfg, sizeof(init_cfg)) != sizeof(init_cfg)) {}
++                        }
++                        void * mp = mmap(NULL, 32, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
++                        if (mp != MAP_FAILED) {
++                            s_moe_cfg_mmap = (volatile int32_t *) mp;
++                        }
+                     }
+                     close(fd);
+                 }
+diff --git a/ggml/src/ggml-cpu/ops.cpp b/ggml/src/ggml-cpu/ops.cpp
+index f6988240f..52692d880 100644
+--- a/ggml/src/ggml-cpu/ops.cpp
++++ b/ggml/src/ggml-cpu/ops.cpp
+@@ -8544,9 +8544,12 @@ void ggml_compute_forward_top_k(
+ }
+ 
+ #if defined(__AVX2__) || defined(__AVX512F__)
++#if defined(__linux__)
+ #include <sys/mman.h>
++#include <sys/stat.h>
+ #include <fcntl.h>
+ #include <unistd.h>
++#endif
+ 
+ struct llama_modchip_shm_t {
+     uint32_t magic;            // 0x4D4F4443 ("MODC")
+@@ -8583,17 +8586,45 @@ struct kv_l3_policy_config {
+         const char * env_st = getenv("LLAMA_SWA_STRIDE");
+         swa_stride          = env_st ? atoll(env_st) : 0;
+ 
+-        int fd = open("/dev/shm/llama_modchip.bin", O_RDONLY);
++#if defined(__linux__)
++        int fd = -1;
++        const char * custom_shm = getenv("MODCHIP_SHM_PATH");
++        if (custom_shm && custom_shm[0]) {
++            fd = open(custom_shm, O_RDONLY | O_NOFOLLOW);
++        }
++        if (fd < 0) {
++            const char * xdg = getenv("XDG_RUNTIME_DIR");
++            if (xdg && xdg[0]) {
++                char path_buf[512];
++                snprintf(path_buf, sizeof(path_buf), "%s/llama_modchip.bin", xdg);
++                fd = open(path_buf, O_RDONLY | O_NOFOLLOW);
++            }
++        }
++        if (fd < 0) {
++            char uid_buf[128];
++            snprintf(uid_buf, sizeof(uid_buf), "/dev/shm/llama_modchip_%u.bin", (unsigned)geteuid());
++            fd = open(uid_buf, O_RDONLY | O_NOFOLLOW);
++        }
+         if (fd >= 0) {
+-            void * p = mmap(nullptr, sizeof(llama_modchip_shm_t), PROT_READ, MAP_SHARED, fd, 0);
+-            close(fd);
+-            if (p != MAP_FAILED) {
+-                const llama_modchip_shm_t * s = (const llama_modchip_shm_t *)p;
+-                if (s->magic == 0x4D4F4443u) {
+-                    shm_ptr = s;
++            struct stat st;
++            if (fstat(fd, &st) == 0 &&
++                S_ISREG(st.st_mode) &&
++                st.st_size >= (off_t)sizeof(llama_modchip_shm_t) &&
++                st.st_uid == geteuid() &&
++                (st.st_mode & 0022) == 0) {
++                void * p = mmap(nullptr, sizeof(llama_modchip_shm_t), PROT_READ, MAP_SHARED, fd, 0);
++                if (p != MAP_FAILED) {
++                    const llama_modchip_shm_t * s = (const llama_modchip_shm_t *)p;
++                    if (s->magic == 0x4D4F4443u) {
++                        shm_ptr = s;
++                    } else {
++                        munmap(p, sizeof(llama_modchip_shm_t));
++                    }
+                 }
+             }
++            close(fd);
+         }
++#endif
+ 
+         if (attn_window > 0) {
+             fprintf(stderr, "[GGML-MODCHIP] SWA ACTIVE: Window=%ld, Sinks=%ld, Stride=%ld, L3 Window=%ld\n",

@@ -1,5 +1,5 @@
 diff --git a/ggml/src/ggml-common.h b/ggml/src/ggml-common.h
-index 83f9118..adf71e9 100644
+index 83f9118da..adf71e92a 100644
 --- a/ggml/src/ggml-common.h
 +++ b/ggml/src/ggml-common.h
 @@ -186,10 +186,12 @@ static_assert(sizeof(block_q1_0) == sizeof(ggml_half) + QK1_0 / 8, "wrong q1_0 b
@@ -19,7 +19,7 @@ index 83f9118..adf71e9 100644
  #define QK4_0 32
  typedef struct {
 diff --git a/ggml/src/ggml-cpu/arch/arm/quants.c b/ggml/src/ggml-cpu/arch/arm/quants.c
-index b988abf..e123d4d 100644
+index b988abf99..e123d4dac 100644
 --- a/ggml/src/ggml-cpu/arch/arm/quants.c
 +++ b/ggml/src/ggml-cpu/arch/arm/quants.c
 @@ -220,78 +220,8 @@ void ggml_vec_dot_q1_0_q8_0(int n, float * GGML_RESTRICT s, size_t bs, const voi
@@ -103,7 +103,7 @@ index b988abf..e123d4d 100644
  
  void ggml_vec_dot_q4_0_q8_0(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
 diff --git a/ggml/src/ggml-cpu/arch/x86/quants.c b/ggml/src/ggml-cpu/arch/x86/quants.c
-index ea54cfe..7ca5c6c 100644
+index ea54cfe44..7ca5c6cea 100644
 --- a/ggml/src/ggml-cpu/arch/x86/quants.c
 +++ b/ggml/src/ggml-cpu/arch/x86/quants.c
 @@ -721,6 +721,12 @@ void ggml_vec_dot_q4_0_q8_0(int n, float * GGML_RESTRICT s, size_t bs, const voi
@@ -286,7 +286,7 @@ index ea54cfe..7ca5c6c 100644
          const float d = y[i].d * GGML_CPU_FP16_TO_FP32(x[i].d);
  
 diff --git a/ggml/src/ggml-cpu/ggml-cpu.c b/ggml/src/ggml-cpu/ggml-cpu.c
-index 7918845..7f1222b 100644
+index 7918845cc..7f1222bbc 100644
 --- a/ggml/src/ggml-cpu/ggml-cpu.c
 +++ b/ggml/src/ggml-cpu/ggml-cpu.c
 @@ -489,6 +489,8 @@ struct ggml_threadpool {
@@ -887,7 +887,7 @@ index 7918845..7f1222b 100644
              ggml_graph_compute_thread(&threadpool->workers[ith]);
          }
 diff --git a/ggml/src/ggml-cpu/ops.cpp b/ggml/src/ggml-cpu/ops.cpp
-index 42ec809..1d27585 100644
+index 42ec809ce..e0f4736a0 100644
 --- a/ggml/src/ggml-cpu/ops.cpp
 +++ b/ggml/src/ggml-cpu/ops.cpp
 @@ -12,6 +12,10 @@
@@ -901,7 +901,7 @@ index 42ec809..1d27585 100644
  // ggml_compute_forward_dup
  
  static void ggml_compute_forward_dup_same_cont(
-@@ -8465,6 +8469,114 @@ void ggml_compute_forward_top_k(
+@@ -8465,6 +8469,123 @@ void ggml_compute_forward_top_k(
      }
  }
  
@@ -949,21 +949,30 @@ index 42ec809..1d27585 100644
 +
 +        int fd = -1;
 +#if defined(__linux__)
-+        const char * xdg = std::getenv("XDG_RUNTIME_DIR");
-+        if (xdg && xdg[0]) {
-+            char path_buf[512];
-+            std::snprintf(path_buf, sizeof(path_buf), "%s/llama_modchip.bin", xdg);
-+            fd = open(path_buf, O_RDONLY | O_NOFOLLOW);
++        const char * custom_shm = std::getenv("MODCHIP_SHM_PATH");
++        if (custom_shm && custom_shm[0]) {
++            fd = open(custom_shm, O_RDONLY | O_NOFOLLOW);
 +        }
 +        if (fd < 0) {
-+            fd = open("/dev/shm/llama_modchip.bin", O_RDONLY | O_NOFOLLOW);
++            const char * xdg = std::getenv("XDG_RUNTIME_DIR");
++            if (xdg && xdg[0]) {
++                char path_buf[512];
++                std::snprintf(path_buf, sizeof(path_buf), "%s/llama_modchip.bin", xdg);
++                fd = open(path_buf, O_RDONLY | O_NOFOLLOW);
++            }
++        }
++        if (fd < 0) {
++            char uid_buf[128];
++            std::snprintf(uid_buf, sizeof(uid_buf), "/dev/shm/llama_modchip_%u.bin", (unsigned)geteuid());
++            fd = open(uid_buf, O_RDONLY | O_NOFOLLOW);
 +        }
 +        if (fd >= 0) {
 +            struct stat st;
 +            if (fstat(fd, &st) == 0 &&
 +                S_ISREG(st.st_mode) &&
 +                st.st_size >= (off_t)sizeof(llama_modchip_shm_t) &&
-+                st.st_uid == getuid()) {
++                st.st_uid == geteuid() &&
++                (st.st_mode & 0022) == 0) {
 +                void * p = mmap(nullptr, sizeof(llama_modchip_shm_t), PROT_READ, MAP_SHARED, fd, 0);
 +                if (p != MAP_FAILED) {
 +                    const llama_modchip_shm_t * s = (const llama_modchip_shm_t *)p;
@@ -1016,7 +1025,7 @@ index 42ec809..1d27585 100644
  static void ggml_compute_forward_flash_attn_ext_f16_one_chunk(
          const ggml_compute_params * params,
          ggml_tensor * dst,
-@@ -8473,6 +8585,9 @@ static void ggml_compute_forward_flash_attn_ext_f16_one_chunk(
+@@ -8473,6 +8594,9 @@ static void ggml_compute_forward_flash_attn_ext_f16_one_chunk(
          float * partials, int64_t partial_stride) {
  
      const bool write_partials = (partials != nullptr);
@@ -1026,7 +1035,7 @@ index 42ec809..1d27585 100644
      const ggml_tensor * q     = dst->src[0];
      const ggml_tensor * k     = dst->src[1];
      const ggml_tensor * v     = dst->src[2];
-@@ -8588,8 +8703,22 @@ static void ggml_compute_forward_flash_attn_ext_f16_one_chunk(
+@@ -8588,8 +8712,22 @@ static void ggml_compute_forward_flash_attn_ext_f16_one_chunk(
          // online softmax / attention
          // loop over n_kv and n_head_kv
          // ref: https://arxiv.org/pdf/2112.05682.pdf
@@ -1049,7 +1058,7 @@ index 42ec809..1d27585 100644
              const float mv = mp ? slope*GGML_CPU_FP16_TO_FP32(mp[ic]) : 0.0f;
              if (mv == -INFINITY) {
                  continue;
-@@ -8597,6 +8726,53 @@ static void ggml_compute_forward_flash_attn_ext_f16_one_chunk(
+@@ -8597,6 +8735,53 @@ static void ggml_compute_forward_flash_attn_ext_f16_one_chunk(
  
              float s; // KQ value
  
@@ -1103,7 +1112,7 @@ index 42ec809..1d27585 100644
              const char * k_data = (const char *) k->data + ( ic*nbk1 + ik2*nbk2 + ik3*nbk3);
              kq_vec_dot(DK, &s, 0, k_data, 0, Q_q, 0, 1);
  
-@@ -9149,7 +9325,7 @@ static void ggml_compute_forward_flash_attn_ext_f16(
+@@ -9149,7 +9334,7 @@ static void ggml_compute_forward_flash_attn_ext_f16(
          const int64_t nr = neq1*neq2*neq3;
  
          // disable for NUMA
@@ -1112,7 +1121,7 @@ index 42ec809..1d27585 100644
  
          // 4x chunks per thread
          int nth_scaled = nth * 4;
-@@ -10894,7 +11070,7 @@ static void ggml_compute_forward_gated_delta_net_f32(
+@@ -10894,7 +11079,7 @@ static void ggml_compute_forward_gated_delta_net_f32(
      int64_t nr = V->ne[1] * V->ne[3];
  
      // disable for NUMA
@@ -1122,7 +1131,7 @@ index 42ec809..1d27585 100644
      int nth = params->nth;
      int ith = params->ith;
 diff --git a/ggml/src/ggml-cpu/quants.c b/ggml/src/ggml-cpu/quants.c
-index 5e36459..4aab168 100644
+index 5e36459f8..4aab168ee 100644
 --- a/ggml/src/ggml-cpu/quants.c
 +++ b/ggml/src/ggml-cpu/quants.c
 @@ -174,6 +174,199 @@ void ggml_vec_dot_q1_0_q8_0_generic(int n, float * GGML_RESTRICT s, size_t bs, c
@@ -1716,7 +1725,7 @@ index 5e36459..4aab168 100644
  
  void ggml_vec_dot_q4_0_q8_0_generic(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
 diff --git a/ggml/src/ggml-cpu/quants.h b/ggml/src/ggml-cpu/quants.h
-index 93ea7ee..44287c7 100644
+index 93ea7eeff..44287c7ea 100644
 --- a/ggml/src/ggml-cpu/quants.h
 +++ b/ggml/src/ggml-cpu/quants.h
 @@ -101,6 +101,13 @@ void ggml_vec_dot_iq1_m_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs,
@@ -1734,7 +1743,7 @@ index 93ea7ee..44287c7 100644
  }
  #endif
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index 05e8d7f..03291e9 100644
+index 05e8d7f73..03291e941 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
 @@ -4822,6 +4822,16 @@ static ggml_backend_buffer_type_t ggml_backend_cuda_device_get_host_buffer_type(
@@ -1755,7 +1764,7 @@ index 05e8d7f..03291e9 100644
  
      // check if all the sources are allocated on this device
 diff --git a/ggml/src/ggml-metal/ggml-metal.metal b/ggml/src/ggml-metal/ggml-metal.metal
-index 92258b7..f72804e 100644
+index 92258b737..f72804e87 100644
 --- a/ggml/src/ggml-metal/ggml-metal.metal
 +++ b/ggml/src/ggml-metal/ggml-metal.metal
 @@ -170,20 +170,45 @@ void dequantize_q1_0_t4(device const block_q1_0 * xb, short il, thread type4 & r
@@ -2033,7 +2042,7 @@ index 92258b7..f72804e 100644
  
  // function for calculate inner product between half a q4_0 block and 16 floats (yl), sumy is SUM(yl[i])
 diff --git a/ggml/src/ggml-opencl/ggml-opencl.cpp b/ggml/src/ggml-opencl/ggml-opencl.cpp
-index fc0fce0..7559e19 100644
+index fc0fce0d7..7559e194c 100644
 --- a/ggml/src/ggml-opencl/ggml-opencl.cpp
 +++ b/ggml/src/ggml-opencl/ggml-opencl.cpp
 @@ -10820,6 +10820,15 @@ static ggml_backend_buffer_t ggml_backend_opencl_device_buffer_from_ptr(ggml_bac
@@ -2053,7 +2062,7 @@ index fc0fce0..7559e19 100644
      return ggml_opencl_supports_op(dev, op);
  }
 diff --git a/ggml/src/ggml-quants.c b/ggml/src/ggml-quants.c
-index 1ebc50a..053cdf3 100644
+index 1ebc50a76..053cdf3b8 100644
 --- a/ggml/src/ggml-quants.c
 +++ b/ggml/src/ggml-quants.c
 @@ -71,40 +71,128 @@ void quantize_row_q1_0_ref(const float * GGML_RESTRICT x, block_q1_0 * GGML_REST
@@ -2242,7 +2251,7 @@ index 1ebc50a..053cdf3 100644
      }
  }
 diff --git a/ggml/src/ggml-sycl/ggml-sycl.cpp b/ggml/src/ggml-sycl/ggml-sycl.cpp
-index 18d5878..0f3d4ea 100644
+index 18d58782e..0f3d4ea7e 100644
 --- a/ggml/src/ggml-sycl/ggml-sycl.cpp
 +++ b/ggml/src/ggml-sycl/ggml-sycl.cpp
 @@ -5677,6 +5677,16 @@ static ggml_backend_buffer_t ggml_backend_sycl_device_buffer_from_host_ptr(ggml_
@@ -2263,7 +2272,7 @@ index 18d5878..0f3d4ea 100644
          (ggml_backend_sycl_device_context *)dev->context;
      int device = sycl_ctx->device;
 diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-index a923755..1dd5567 100644
+index a923755f9..1dd556752 100644
 --- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
 +++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
 @@ -17901,6 +17901,16 @@ static ggml_backend_t ggml_backend_vk_device_init(ggml_backend_dev_t dev, const
@@ -2284,7 +2293,7 @@ index a923755..1dd5567 100644
      const vk_device& device = ggml_vk_get_device(ctx->device);
  
 diff --git a/ggml/src/ggml.c b/ggml/src/ggml.c
-index da7f3a5..ceff0b0 100644
+index da7f3a5f2..ceff0b024 100644
 --- a/ggml/src/ggml.c
 +++ b/ggml/src/ggml.c
 @@ -364,6 +364,11 @@ void * ggml_aligned_malloc(size_t size) {
@@ -2312,7 +2321,7 @@ index da7f3a5..ceff0b0 100644
  #endif
  }
 diff --git a/src/llama-mmap.cpp b/src/llama-mmap.cpp
-index ed572da..b18ef4a 100644
+index ed572da7f..b18ef4a0b 100644
 --- a/src/llama-mmap.cpp
 +++ b/src/llama-mmap.cpp
 @@ -458,6 +458,9 @@ struct llama_mmap::impl {
@@ -2326,7 +2335,7 @@ index ed572da..b18ef4a 100644
          if (prefetch > 0) {
              if (posix_madvise(addr, std::min(file->size(), prefetch), POSIX_MADV_WILLNEED)) {
 diff --git a/src/llama-model.cpp b/src/llama-model.cpp
-index 3bf3a22..4b848ca 100644
+index 3bf3a22f2..4b848ca19 100644
 --- a/src/llama-model.cpp
 +++ b/src/llama-model.cpp
 @@ -1104,6 +1104,18 @@ void llama_model_base::load_hparams(llama_model_loader & ml) {
@@ -2349,7 +2358,7 @@ index 3bf3a22..4b848ca 100644
          if (hparams.n_expert <= 1) {
              hparams.n_expert      = 0;
 diff --git a/tools/server/server-context.cpp b/tools/server/server-context.cpp
-index 38d2e5c..7566a67 100644
+index 38d2e5c7a..7566a6788 100644
 --- a/tools/server/server-context.cpp
 +++ b/tools/server/server-context.cpp
 @@ -2376,13 +2376,16 @@ private:
