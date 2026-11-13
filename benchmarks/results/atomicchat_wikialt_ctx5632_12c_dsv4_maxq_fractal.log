@@ -1,3 +1,7 @@
+# Model: Synchopate/DeepSeek-V4-Flash-0731-MaxQ-Fractal-64GB-CPU-GGUF (v2.5.3 donor-free single-pass 0731)
+# Shard-1 SHA256: 0ae64076077f88f5750d7e78403bbf0304a386c86912a47655eb3aaf627d2ce4 (5257952 B)
+# Shard-2 SHA256: 155fc6c239969ed2c470c6a7b9c474bc0c17922980e8111f614c88dd65e63aa5 (36817932704 B)
+# Shard-3 SHA256: 15f2e256b9b1c3e106a52ddc2e093f2264571ffdbce3ba0010f54f9ecce57252 (24306173504 B)
 [RouteCrack+Stockfish-PVS] Initialized: 0 cascade tables, 0 hot rules, 0 macro entries, 1 warm trie nodes, 192KB L2 Zobrist TT
 [GGML-MODCHIP] Full 256K Global Attention ACTIVE: Window=FULL, L3 NTA Window=2048
 0.40.740.684 I 

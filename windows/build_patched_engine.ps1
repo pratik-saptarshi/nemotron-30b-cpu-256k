@@ -80,12 +80,11 @@ try {
         if ($LASTEXITCODE -ne 0) { Fail "LUT-VQ3-64 patch does not apply." }
     }
 
-    if ($Target -ne "nemotron" -and (Test-Path $Dsv4IpcPatch)) {
-        & $git apply --check $Dsv4IpcPatch 2>$null
-        if ($LASTEXITCODE -eq 0) {
-            Write-Host "[*] Applying patches\dsv4-ipc-hardening.patch ..." -ForegroundColor Cyan
-            & $git apply $Dsv4IpcPatch
-        }
+    if ($Target -ne "nemotron") {
+        if (-not (Test-Path $Dsv4IpcPatch)) { Fail "Missing required patch: $Dsv4IpcPatch" }
+        Write-Host "[*] Applying patches\dsv4-ipc-hardening.patch ..." -ForegroundColor Cyan
+        & $git apply $Dsv4IpcPatch
+        if ($LASTEXITCODE -ne 0) { Fail "dsv4-ipc-hardening.patch does not apply." }
     }
 
     Write-Host "[*] Copying RouteCrack headers into common\ ..." -ForegroundColor Cyan

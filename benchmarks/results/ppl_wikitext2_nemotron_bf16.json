@@ -2,7 +2,7 @@
   "timestamp": "2026-11-13T00:47:19+0000",
   "label": "NVIDIA-Nemotron-3.5-30B-A3B-BF16",
   "model": "NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16.gguf",
-  "model_sha256": "bf16_master_63181504576B",
+  "model_sha256": "fd513c912c63dc5ca29ab6932107f8354d53ea13be88b3c5072bd4022814acc7",
   "perplexity": {
     "ppl": 6.9582,
     "ppl_std": 0.24151,
@@ -11,6 +11,6 @@
     "eval_tokens": 12288,
     "corpus": "wiki.test.raw",
     "wall_sec": 131.76,
-    "model_sha256": "bf16_master_63181504576B"
+    "model_sha256": "fd513c912c63dc5ca29ab6932107f8354d53ea13be88b3c5072bd4022814acc7"
   }
 }

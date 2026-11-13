@@ -540,7 +540,7 @@ cmd_download_bin() {
     local srv_asset="llama-server-modchip-linux-x86_64-${isa_suffix}"
     local cli_asset="llama-cli-modchip-linux-x86_64-${isa_suffix}"
     local base_url="https://github.com/synchopate/llama-modchip/releases/download/v2.5.3"
-    local fallback_url="https://huggingface.co/Synchopate/DeepSeek-V4-Flash-0731-MaxQ-Fractal-64GB-CPU-GGUF/resolve/7b65f11ccb0e867e3156118d84e2b08657621601"
+    local fallback_url="https://huggingface.co/Synchopate/DeepSeek-V4-Flash-0731-MaxQ-Fractal-64GB-CPU-GGUF/resolve/3619ba39ae7ac349548ce2cdff1e1c2ca3a71cb5"
     echo -e "${CYAN}[*] CPUID detected '${isa_suffix}' ISA — downloading portable ${srv_asset} & ${cli_asset}...${RESET}"
     curl -fL --progress-bar -o "${dest_dir}/${srv_asset}.part" "${base_url}/${srv_asset}" \
         || curl -fL --progress-bar -o "${dest_dir}/${srv_asset}.part" "${fallback_url}/${srv_asset}"

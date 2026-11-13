@@ -336,7 +336,7 @@ else
             MODEL_FAMILY="dsv4"
             MODEL_LABEL="DeepSeek-V4-Flash-0731-MaxQ-Fractal (284B · 56.93 GiB · 3 shards)"
             MODEL_REPO="Synchopate/DeepSeek-V4-Flash-0731-MaxQ-Fractal-64GB-CPU-GGUF"
-            MODEL_REV="7b65f11ccb0e867e3156118d84e2b08657621601"
+            MODEL_REV="3619ba39ae7ac349548ce2cdff1e1c2ca3a71cb5"
             MODEL_SUBDIR="dsv4-maxq-fractal"
             MODEL_SHARDS=(
                 "DeepSeek-V4-Flash-0731-MaxQ-Fractal-00001-of-00003.gguf"
@@ -355,7 +355,7 @@ else
             MODEL_FAMILY="dsv4"
             MODEL_LABEL="DeepSeek-V4-Flash-0731-VQ3 (284B · 56.40 GiB · 3 shards)"
             MODEL_REPO="Synchopate/DeepSeek-V4-Flash-0731-VQ3-64GB-CPU-GGUF"
-            MODEL_REV="8d4ae82ca94d3dd4a9b5063f198848c52cd38c23"
+            MODEL_REV="dd470e619f2a4926adbdd471010423d4b686c1b4"
             MODEL_SUBDIR="dsv4-vq3"
             MODEL_SHARDS=(
                 "DeepSeek-V4-Flash-0731-VQ3-00001-of-00003.gguf"
@@ -374,7 +374,7 @@ else
             MODEL_FAMILY="dsv4"
             MODEL_LABEL="DeepSeek-V4-Flash-0731-Fractal (284B · 56.57 GiB · 3 shards)"
             MODEL_REPO="Synchopate/DeepSeek-V4-Flash-0731-Fractal-64GB-CPU-GGUF"
-            MODEL_REV="089c653c264f56d07186fffecd27bd9ee428c581"
+            MODEL_REV="a0758c031751ef02e3cd63d330183e5525bd8cc9"
             MODEL_SUBDIR="dsv4-fractal"
             MODEL_SHARDS=(
                 "DeepSeek-V4-Flash-0731-Fractal-00001-of-00003.gguf"
@@ -394,7 +394,7 @@ else
             IS_ABLITERATED=1
             MODEL_LABEL="DeepSeek-V4-Flash-0731-Abliterated-Fractal (284B · 56.93 GiB · 3 shards)"
             MODEL_REPO="Synchopate/DeepSeek-V4-Flash-0731-Abliterated-Fractal-64GB-CPU-GGUF"
-            MODEL_REV="4b5a063588db606202dbd7c72c15280c35833af6"
+            MODEL_REV="2ebd8a1e5730b1e43ab6a84178e9b949d223f3e9"
             MODEL_SUBDIR="dsv4-abliterated-fractal"
             MODEL_SHARDS=(
                 "DeepSeek-V4-Flash-0731-Abliterated-Fractal-00001-of-00003.gguf"
@@ -413,7 +413,7 @@ else
             MODEL_FAMILY="nemotron"
             MODEL_LABEL="NVIDIA-Nemotron-3.5-30B-A3B-VQ3-64 (30B · 13.30 GiB)"
             MODEL_REPO="Synchopate/NVIDIA-Nemotron-3.5-30B-A3B-VQ3-64-CPU-GGUF"
-            MODEL_REV="e49472e6cdad48d9f176db29b597153c9c605238"
+            MODEL_REV="c3dd3a506502fd9accb5c6dc9055a7c3dd4aba9a"
             MODEL_SHARDS=("NVIDIA-Nemotron-3.5-30B-A3B-VQ3-64.gguf")
             MODEL_SHARD_SIZES=(14282559040)
             MODEL_SHARD_SHA256S=("d273709749aa88fd5a5af59ed3a2d55354283e1ae8ae7483f85737dd01d42b76")
@@ -423,7 +423,7 @@ else
             MODEL_FAMILY="nemotron"
             MODEL_LABEL="NVIDIA-Nemotron-3.5-30B-A3B-Fractal-64 (30B · 14.36 GiB)"
             MODEL_REPO="Synchopate/NVIDIA-Nemotron-3.5-30B-A3B-Fractal-64-CPU-GGUF"
-            MODEL_REV="0176e63e646b09a132517e2c5981097ae630fedd"
+            MODEL_REV="fab73258754e9f4a2d21077af5300883bae201c0"
             MODEL_SHARDS=("NVIDIA-Nemotron-3.5-30B-A3B-Fractal-64.gguf")
             MODEL_SHARD_SIZES=(15420034624)
             MODEL_SHARD_SHA256S=("71c22562ab908d5d3373e3a010544e977af2499e3cc476fc7646d402a8a550ee")
@@ -434,7 +434,7 @@ else
             IS_ABLITERATED=1
             MODEL_LABEL="NVIDIA-Nemotron-3.5-30B-A3B-Abliterated-VQ3-64 (30B · 13.30 GiB)"
             MODEL_REPO="Synchopate/NVIDIA-Nemotron-3.5-30B-A3B-Abliterated-VQ3-64-CPU-GGUF"
-            MODEL_REV="c90f718637561fbb1a63e51668a9b555e0cdc610"
+            MODEL_REV="db9a06beb7c90fc1e5fd5570a874ac7f476a85bb"
             MODEL_SHARDS=("NVIDIA-Nemotron-3.5-30B-A3B-Abliterated-VQ3-64.gguf")
             MODEL_SHARD_SIZES=(14282559488)
             MODEL_SHARD_SHA256S=("456d5561acf609850c816fa15de7dbff93bd92430f64aadd85682dacc6f02fa4")
@@ -592,7 +592,7 @@ LLAMA_BUILD_DIR="${WORKSPACE_DIR}/llama.cpp"
 PREBUILT_OK=0
 if [[ "$USE_PREBUILT" == "1" && -n "$X86_PREBUILT_ASSET" ]]; then
     ASSET_URL="https://github.com/synchopate/llama-modchip/releases/download/v2.5.3/${X86_PREBUILT_ASSET}"
-    FALLBACK_ASSET_URL="https://huggingface.co/Synchopate/DeepSeek-V4-Flash-0731-MaxQ-Fractal-64GB-CPU-GGUF/resolve/7b65f11ccb0e867e3156118d84e2b08657621601/${X86_PREBUILT_ASSET}"
+    FALLBACK_ASSET_URL="https://huggingface.co/Synchopate/DeepSeek-V4-Flash-0731-MaxQ-Fractal-64GB-CPU-GGUF/resolve/3619ba39ae7ac349548ce2cdff1e1c2ca3a71cb5/${X86_PREBUILT_ASSET}"
     EXPECTED_BIN_SHA256="09f2a1accacb1454aaf0d9a8d75dda8f7cca36df81138eb57bfee45137ef07e4"
     [[ "$X86_PREBUILT_ASSET" == *-avx512 ]] && EXPECTED_BIN_SHA256="85fe1e2a780ce7c88d99cf5f6fa384c2726dfeee247460924d6bf937efd19597"
     echo "[*] CPUID selected portable precompiled binary: ${X86_PREBUILT_ASSET}"
