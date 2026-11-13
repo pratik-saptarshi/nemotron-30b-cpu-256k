@@ -19,8 +19,30 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -z "${WORKSPACE_DIR:-}" && -f "${REPO_ROOT}/.modchip_workspace" ]]; then
+    SAVED_WS="$(head -n 1 "${REPO_ROOT}/.modchip_workspace" 2>/dev/null | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' || true)"
+    [[ -n "$SAVED_WS" ]] && WORKSPACE_DIR="$SAVED_WS"
+fi
 WORKSPACE_DIR="${WORKSPACE_DIR:-${REPO_ROOT}/workspace}"
 PID_DIR="${WORKSPACE_DIR}/run"
+
+compute_sha256() {
+    local f="$1"
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$f" | awk '{print $1}'
+    elif command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$f" | awk '{print $1}'
+    else
+        python3 - "$f" <<'PYEOF'
+import hashlib, sys
+h = hashlib.sha256()
+with open(sys.argv[1], "rb") as fp:
+    for chunk in iter(lambda: fp.read(1048576), b""):
+        h.update(chunk)
+print(h.hexdigest())
+PYEOF
+    fi
+}
 SERVER_PORT_FILE="${PID_DIR}/server_port"
 if [[ -z "${SERVER_PORT:-}" ]] && [[ -f "$SERVER_PORT_FILE" ]]; then
     SERVER_PORT="$(head -n 1 "$SERVER_PORT_FILE" 2>/dev/null | tr -d '[:space:]')"
@@ -165,12 +187,54 @@ cmd_start() {
 
     case "$(uname -s)" in
         Darwin)
-            echo -e "${CYAN}[*] macOS detected — delegating to apple-silicon/ scripts...${RESET}"
-            "${REPO_ROOT}/apple-silicon/run-server.sh" > "${WORKSPACE_DIR}/logs/server.log" 2>&1 &
-            echo $! > "$SERVER_PID_FILE"
-            "${REPO_ROOT}/apple-silicon/run-gateway.sh" > "${WORKSPACE_DIR}/logs/gateway.log" 2>&1 &
-            echo $! > "$GATEWAY_PID_FILE"
-            return 0
+            if [[ ! -x "${REPO_ROOT}/start_server.sh" || ! -x "${WORKSPACE_DIR}/bin/llama-server-nemotron" ]]; then
+                echo -e "${CYAN}[*] macOS detected — delegating to apple-silicon/ scripts...${RESET}"
+                local mac_model_env=""
+                if [[ -n "$explicit_model" ]]; then
+                    case "$explicit_model" in
+                        /*) mac_model_env="$explicit_model" ;;
+                        *)  mac_model_env="${PWD}/${explicit_model}" ;;
+                    esac
+                elif [[ -f "$model" ]]; then
+                    mac_model_env="$model"
+                fi
+                if ! is_port_up "$SERVER_PORT" "$SERVER_HOST"; then
+                    if [[ -n "$mac_model_env" ]]; then
+                        MODEL="$mac_model_env" PORT="$SERVER_PORT" nohup "${REPO_ROOT}/apple-silicon/run-server.sh" "$@" > "${WORKSPACE_DIR}/logs/server.log" 2>&1 &
+                    else
+                        PORT="$SERVER_PORT" nohup "${REPO_ROOT}/apple-silicon/run-server.sh" "$@" > "${WORKSPACE_DIR}/logs/server.log" 2>&1 &
+                    fi
+                    echo $! > "$SERVER_PID_FILE"
+                fi
+                if ! is_port_up "$GATEWAY_PORT" "$GATEWAY_HOST"; then
+                    GATEWAY_HOST="$GATEWAY_HOST" GATEWAY_PORT="$GATEWAY_PORT" UPSTREAM_BASE="http://${SERVER_HOST}:${SERVER_PORT}" \
+                        nohup "${REPO_ROOT}/apple-silicon/run-gateway.sh" > "${WORKSPACE_DIR}/logs/gateway.log" 2>&1 &
+                    echo $! > "$GATEWAY_PID_FILE"
+                fi
+                local probe_mac_host="$SERVER_HOST"
+                [[ "$probe_mac_host" == "0.0.0.0" ]] && probe_mac_host="127.0.0.1"
+                echo -ne "${CYAN}[*] Waiting for Apple Silicon Metal engine to load (logs: workspace/logs/server.log)...${RESET}"
+                local mac_ready=0
+                local mac_srv_pid=""
+                [[ -f "$SERVER_PID_FILE" ]] && mac_srv_pid="$(cat "$SERVER_PID_FILE" 2>/dev/null || true)"
+                for _ in $(seq 1 240); do
+                    if curl -sf --max-time 2 "http://${probe_mac_host}:${SERVER_PORT}/health" >/dev/null 2>&1; then
+                        echo -e " ${GREEN}${BOLD}READY!${RESET}"
+                        mac_ready=1
+                        break
+                    fi
+                    if [[ -n "$mac_srv_pid" ]] && ! kill -0 "$mac_srv_pid" 2>/dev/null; then
+                        echo -e " ${YELLOW}${BOLD}FAILED!${RESET}"
+                        tail -n 25 "${WORKSPACE_DIR}/logs/server.log" >&2 2>/dev/null || true
+                        return 1
+                    fi
+                    echo -n "."
+                    sleep 1
+                done
+                echo ""
+                [[ "$mac_ready" -eq 0 ]] && return 1
+                return 0
+            fi
             ;;
         MINGW*|MSYS*|CYGWIN*)
             echo -e "${CYAN}[*] Windows detected — launching windows/modchip_win.ps1...${RESET}"
@@ -311,7 +375,7 @@ cmd_start() {
     fi
 
     echo -e "${BOLD}${GREEN}╔══════════════════════════════════════════════════════════════════════════════╗${RESET}"
-    echo -e "${BOLD}${GREEN}║    llama-modchip v2.5.3 is LIVE — Choose how you want to interact:           ║${RESET}"
+    echo -e "${BOLD}${GREEN}║    llama-modchip v2.5.4 is LIVE — Choose how you want to interact:           ║${RESET}"
     echo -e "${BOLD}${GREEN}╠══════════════════════════════════════════════════════════════════════════════╣${RESET}"
     echo -e "  🌐 ${BOLD}Live Web Chat & Telemetry HUD${RESET} : ${CYAN}http://${GATEWAY_HOST}:${GATEWAY_PORT}${RESET}"
     echo -e "  💬 ${BOLD}Interactive Terminal Chat${RESET}     : ${GREEN}./modchip chat${RESET}"
@@ -531,21 +595,21 @@ cmd_download_bin() {
     local cli_sha256="c9fe218d3be566e38c7677c903013ee6d90fa3663aa87d3bbc78c2109e8ac2c4"
     if echo "$flags" | grep -q "avx512f" && echo "$flags" | grep -qE "avx512_?vbmi"; then
         isa_suffix="avx512"
-        srv_sha256="85fe1e2a780ce7c88d99cf5f6fa384c2726dfeee247460924d6bf937efd19597"
-        cli_sha256="883e6d3ca4d33d716c273962e04ec945b83759332e84ac1e35838af3efdb7a8e"
+        srv_sha256="7cf2563ede8670b482ccc7e108d9810023f994a6ce9a3d7bd320f8393dd26304"
+        cli_sha256="6c9317d68f47d4c9c23740ff597d56cafb83ad816f8581cb5315bc11ebb6e163"
     elif ! echo "$flags" | grep -q "avx2"; then
         echo -e "${YELLOW}[!] CPU lacks AVX2; run './modchip setup' to compile scalar/AVX1 fallback from source.${RESET}"
         exit 1
     fi
     local srv_asset="llama-server-modchip-linux-x86_64-${isa_suffix}"
     local cli_asset="llama-cli-modchip-linux-x86_64-${isa_suffix}"
-    local base_url="https://github.com/synchopate/llama-modchip/releases/download/v2.5.3"
-    local fallback_url="https://huggingface.co/Synchopate/DeepSeek-V4-Flash-0731-MaxQ-Fractal-64GB-CPU-GGUF/resolve/3619ba39ae7ac349548ce2cdff1e1c2ca3a71cb5"
+    local base_url="https://github.com/synchopate/llama-modchip/releases/download/v2.5.4"
+    local fallback_url="https://huggingface.co/Synchopate/DeepSeek-V4-Flash-0731-MaxQ-Fractal-64GB-CPU-GGUF/resolve/cffab09528974ece3aedc6611c534e43e614e722"
     echo -e "${CYAN}[*] CPUID detected '${isa_suffix}' ISA — downloading portable ${srv_asset} & ${cli_asset}...${RESET}"
     curl -fL --progress-bar -o "${dest_dir}/${srv_asset}.part" "${base_url}/${srv_asset}" \
         || curl -fL --progress-bar -o "${dest_dir}/${srv_asset}.part" "${fallback_url}/${srv_asset}"
     local actual_srv_sha
-    actual_srv_sha="$(sha256sum "${dest_dir}/${srv_asset}.part" | awk '{print $1}')"
+    actual_srv_sha="$(compute_sha256 "${dest_dir}/${srv_asset}.part")"
     if [[ "$actual_srv_sha" != "$srv_sha256" ]]; then
         echo -e "${YELLOW}[!] SHA-256 mismatch on ${srv_asset} (expected ${srv_sha256}, got ${actual_srv_sha})!${RESET}" >&2
         rm -f "${dest_dir}/${srv_asset}.part"
@@ -567,7 +631,7 @@ cmd_download_bin() {
     if curl -fL --progress-bar -o "${dest_dir}/${cli_asset}.part" "${base_url}/${cli_asset}" \
         || curl -fL --progress-bar -o "${dest_dir}/${cli_asset}.part" "${fallback_url}/${cli_asset}"; then
         local actual_cli_sha
-        actual_cli_sha="$(sha256sum "${dest_dir}/${cli_asset}.part" | awk '{print $1}')"
+        actual_cli_sha="$(compute_sha256 "${dest_dir}/${cli_asset}.part")"
         if [[ "$actual_cli_sha" == "$cli_sha256" ]]; then
             chmod +x "${dest_dir}/${cli_asset}.part"
             mv -f "${dest_dir}/${cli_asset}.part" "${dest_dir}/${cli_asset}"

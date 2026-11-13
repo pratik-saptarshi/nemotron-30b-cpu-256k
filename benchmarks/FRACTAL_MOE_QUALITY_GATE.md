@@ -1,4 +1,4 @@
-# Quality, Tool-Use & RAM Compression Gate — 3-Way Live Hardware Report (AMD Ryzen 9 9950X Zen 5)
+# Quality, Tool-Use & RAM Compression Gate — 3-Way Live Hardware Report (AMD Ryzen 9 9955HX Zen 5)
 
 - **Release Gate Verdict:** **PASSED (`100.0 / 100.0` on both `Fractal-MXFP4-16.0GiB` and `Fractal-64-BF16-14.36GiB`)**
 - **Quality & Tool-Use Retention:** **`100.0%`** (`80.0 / 80.0` across all three models)
@@ -13,7 +13,7 @@
 | :--- | :---: | :---: | :---: | :---: |
 | **GGUF File Size on Disk** | `17.60 GiB` (`18,023 MiB`) | `15.95 GiB` (`16,328 MiB`) | **`14.36 GiB` (`14,698 MiB`)** | **`-3.24 GiB` (`-18.4%`)** |
 | **Effective Bits/Weight (MoE / Total)** | `4.50` / `4.78 bpw` | `4.25` / `4.33 bpw` | **`3.75` / `3.90 bpw`** | **`-0.88 bpw`** |
-| **SQNR on True `BF16` Expert Weights** | `21.02 dB` | `18.51 dB` | **`17.78 dB`** | `+1.53 dB` above `Q3_K` (`16.25 dB`) |
+| **SQNR on True `BF16` Expert Weights** | `21.02 dB` *(`21.09` full)* | `18.51 dB` | **`17.78 dB`** *(`17.75 dB` full `blk.1`)* | `+1.45–1.53 dB` above `Q3_K` (`16.25–16.30 dB`) |
 | **1. Agentic Tool-Calling (`30` pts)** | `30.0 / 30.0` | `30.0 / 30.0` | **`30.0 / 30.0`** | **`100.0%` parity** |
 | **2. Executable Code Gen (`30` pts)** | `30.0 / 30.0` | `30.0 / 30.0` | **`30.0 / 30.0`** | **`100.0%` parity** |
 | **3. Long-Context Needle (`8.5K`) & Math (`20` pts)** | `20.0 / 20.0` | `20.0 / 20.0` | **`20.0 / 20.0`** | **`100.0%` parity** |

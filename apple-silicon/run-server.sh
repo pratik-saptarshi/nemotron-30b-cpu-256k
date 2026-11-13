@@ -20,7 +20,19 @@
 # Extra arguments are passed to llama-server unchanged.
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+WORKSPACE_DIR="${WORKSPACE_DIR:-}"
+if [[ -z "$WORKSPACE_DIR" && -f "${REPO_ROOT}/.modchip_workspace" ]]; then
+    WORKSPACE_DIR="$(head -n 1 "${REPO_ROOT}/.modchip_workspace" 2>/dev/null | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' || true)"
+fi
+WORKSPACE_DIR="${WORKSPACE_DIR:-${REPO_ROOT}/workspace}"
+
 MODEL_DIR="${MODEL_DIR:-$HOME/.lmstudio/models/ggml-org/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-GGUF}"
+if [[ -z "${MODEL:-}" && -f "${WORKSPACE_DIR}/run/default_model" ]]; then
+    SAVED_MODEL="$(head -n 1 "${WORKSPACE_DIR}/run/default_model" 2>/dev/null | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' || true)"
+    [[ -n "$SAVED_MODEL" && -f "$SAVED_MODEL" ]] && MODEL="$SAVED_MODEL"
+fi
 MODEL="${MODEL:-$MODEL_DIR/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-Q4_0.gguf}"
 MTP_MODEL="${MTP_MODEL:-$MODEL_DIR/mtp-NVIDIA-Nemotron-3.5-Lightning-30B-A3B-Q4_0.gguf}"
 PORT="${PORT:-8789}"
@@ -32,16 +44,17 @@ CACHE_RAM="${CACHE_RAM:-1024}"
 CHECKPOINTS="${CHECKPOINTS:-8}"
 KV_TYPE="${KV_TYPE:-q8_0}"
 GATEWAY="${GATEWAY:-0}"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 if [[ -z "${LLAMA_SERVER:-}" ]]; then
-    if [[ -x "${REPO_ROOT}/llama.cpp/build/bin/llama-server" ]]; then
+    if [[ -x "${WORKSPACE_DIR}/bin/llama-server-nemotron" ]]; then
+        LLAMA_SERVER="${WORKSPACE_DIR}/bin/llama-server-nemotron"
+        export DYLD_LIBRARY_PATH="${WORKSPACE_DIR}/llama.cpp/build/bin:${DYLD_LIBRARY_PATH:-}"
+    elif [[ -x "${WORKSPACE_DIR}/llama.cpp/build/bin/llama-server" ]]; then
+        LLAMA_SERVER="${WORKSPACE_DIR}/llama.cpp/build/bin/llama-server"
+    elif [[ -x "${REPO_ROOT}/llama.cpp/build/bin/llama-server" ]]; then
         LLAMA_SERVER="${REPO_ROOT}/llama.cpp/build/bin/llama-server"
-    elif [[ -x "${REPO_ROOT}/workspace/llama.cpp/build/bin/llama-server" ]]; then
-        LLAMA_SERVER="${REPO_ROOT}/workspace/llama.cpp/build/bin/llama-server"
     else
         LLAMA_SERVER="llama-server"
-        echo "[run-server] WARNING: using 'llama-server' from PATH; Fractal-64 (Q2_0) GGUFs require './modchip setup' (or bash apple-silicon/setup.sh)." >&2
+        echo "[run-server] WARNING: using 'llama-server' from PATH; Fractal-64 (Q2_0) / VQ3_0 GGUFs require './modchip setup' (or bash apple-silicon/setup.sh)." >&2
     fi
 fi
 echo "[run-server] binary=$LLAMA_SERVER" >&2

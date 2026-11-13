@@ -27,7 +27,7 @@
 | **8. Weight Tile Repacking (`q4_0_8x8`)** | In-memory AVX-512 VNNI (`VPDPBUSD`) / AVX2 interleaved `8×8` matrix tile repacking at model load | Cache-line splits and nibble-unpacking stalls during GEMV/GEMM | **`+19%` raw GEMV throughput** and **`241–306.8 tok/s` (`pp512`) prefill** on 16C Zen 5 |
 | **9. KV Cache (`EAKV + VPI`)** | Entropy-Guided Asymmetric KV (`Q8_0` Keys for RoPE phase precision, `Q4_0` Values) + Virtual Positional Indexing | FP16 KV cache growth and RoPE degradation at `128K–256K` context | Full **`256K` context in `432 MB`**, `100%` passkey needle retrieval |
 | **10. Agentic Loop (`HARP-Cache` Slot-0)** | `/dev/shm` memory-mapped KV + Mamba-2 recurrent state snapshot + SSE Gateway auto-restore | Re-evaluating Claude Code's `22.2K`-token 40-tool system prompt takes `130.8 s` on CPU | **`18.9 ms` warm turn restore** |
-| **11. Dynamic MoE Pruning (`Top-K 6->4`)** | Opt-in norm-preserving dynamic MoE router truncation (`LLAMA_MOE_TOP_K=4` via per-UID `/dev/shm/llama_modchip_<uid>.bin`) | Reading 6 routed experts per layer on bandwidth-constrained DDR4/DDR5 | **`-33%` routed MoE DRAM traffic** (switchable live via TUI) |
+| **11. Dynamic MoE Pruning (`Top-K 6->4`)** | Opt-in norm-preserving dynamic MoE router truncation (`LLAMA_MOE_TOP_K=4` environment variable at server startup) | Reading 6 routed experts per layer on bandwidth-constrained DDR4/DDR5 | **`-33%` routed MoE DRAM traffic** (opt-in boot-time setting; `v2.5.2+` defaults to unpruned `Top-6`) |
 
 ---
 
@@ -35,14 +35,16 @@
 
 All four quantization profiles (`Baseline-Q4_0`, `Fractal-MXFP4`, `Fractal-64-BF16`, and `LUT-VQ3-64`) pass the automated grading suite [`benchmarks/eval_quality_and_tools.py`](../benchmarks/eval_quality_and_tools.py) (full reports in [`benchmarks/QUALITY_GATE_VQ3_64.md`](../benchmarks/QUALITY_GATE_VQ3_64.md) and [`benchmarks/FRACTAL_MOE_QUALITY_GATE.md`](../benchmarks/FRACTAL_MOE_QUALITY_GATE.md)):
 
-| Metric / Suite ([`benchmarks/eval_quality_and_tools.py`](../benchmarks/eval_quality_and_tools.py)) | `Baseline-Q4_0` (`17.60 GiB`) | `Fractal-MXFP4` (`15.95 GiB`) | `Fractal-64-BF16` (`14.36 GiB`) | **`LUT-VQ3-64` (`13.30 / 13.08 GiB`)** |
+| Metric / Suite ([`benchmarks/eval_quality_and_tools.py`](../benchmarks/eval_quality_and_tools.py)) | `Baseline-Q4_0` (`17.60 GiB`) | `Fractal-MXFP4` (`15.95 GiB`) | `Fractal-64-BF16` (`14.36 GiB`) | **`LUT-VQ3-64` (`13.30` / `13.08 GiB`¹)** |
 | :--- | :---: | :---: | :---: | :---: |
-| **1. Agentic Tool-Calling (`30` pts — 5 multi-tool JSON calls)** | `30.0 / 30.0` | `30.0 / 30.0` | `30.0 / 30.0` | **`30.0 / 30.0`** |
-| **2. Executable Python Code Gen (`30` pts — sandbox-tested)** | `30.0 / 30.0` | `30.0 / 30.0` | `30.0 / 30.0` | **`30.0 / 30.0`** |
-| **3. Long-Context Needle (`8.5K`) & Symbolic Math (`20` pts)** | `20.0 / 20.0` | `20.0 / 20.0` | `20.0 / 20.0` | **`20.0 / 20.0`** |
-| **Single-Turn Decode Throughput (`Stockfish-PVS` E2E)** | `19.54 tok/s` | **`26.08 tok/s`** | **`25.02 tok/s`** | **`24.18 tok/s` (`+23.7%` vs `Q4_0`)** |
-| **Multi-Turn In-Context Refactoring (`Stockfish-PVS M=7`)** | `40.91 tok/s` | **`48.39–60.40 tok/s`** | **`48.39–60.40 tok/s`** | **`48.39–60.40 tok/s`** |
-| **Peak Resident RAM (`VmRSS` @ `256K` Context)** | `21.71 GiB` | `18.86 GiB` | `17.27 GiB` | **`16.04 GiB` (`-5.67 GiB` vs `Q4_0`)** |
+| **1. Agentic Tool-Calling (`30` pts — 5 multi-tool JSON calls)** | `30.0 / 30.0` | `30.0 / 30.0` | `30.0 / 30.0` | **`30.0 / 30.0`¹** |
+| **2. Executable Python Code Gen (`30` pts — sandbox-tested)** | `30.0 / 30.0` | `30.0 / 30.0` | `30.0 / 30.0` | **`30.0 / 30.0`¹** |
+| **3. Long-Context Needle (`8.5K`) & Symbolic Math (`20` pts)** | `20.0 / 20.0` | `20.0 / 20.0` | `20.0 / 20.0` | **`20.0 / 20.0`¹** |
+| **Served Gate Decode (`Stockfish-PVS` E2E, Suite 4)** | `19.54 tok/s` *(`66.7%` acc)* | **`26.08 tok/s`** *(`61.1%` acc)* | **`25.02 tok/s`** *(`59.1%` acc)* | **`24.18 tok/s`¹ (`+23.7%` vs `Q4_0`, `70.2%` acc)** |
+| **In-Context Refactor Burst (`M=7`) / GPU-Hybrid** | **`40.91–60.40 tok/s`** *(`48.39` avg `M=7`)* | **`75.1–80.8 tok/s`** *(AMD Vulkan Hybrid)* | **`71.3–78.6 tok/s`** *(Apple M3/M4 Max Metal)* | — *(Gate E2E measured on `13.08 GiB` abl.¹)* |
+| **Peak Resident RAM (`VmRSS` @ `256K` Context)** | `21.71 GiB` | `18.86 GiB` | `17.27 GiB` | **`16.04 GiB`¹ (`-5.67 GiB` vs `Q4_0`)** |
+
+*(¹ `eval_nemotron_vq3_64.json` [`24.18 tok/s`, `16.04 GiB` `VmRSS`, `100/100` Gate] was recorded on the `13.08 GiB` 23-layer `--all-up-exps` `VQ3` ablation; continuous `WikiText-2` PPL and `BF16` Logit KLD in §3.2 below are measured directly on the shipped `13.30 GiB` Hybrid GGUF.)*
 
 ### 3.1 Empirical Paired KL-Divergence & Logit Fidelity (`Q4_0` Reference Baseline)
 
@@ -68,7 +70,7 @@ Independent paired evaluation conducted by `@khairullinr` on an Apple M4 Max (`3
   - **RMS $\Delta p$**: **`8.133 ± 0.197%`**
 - *Methodological Caveats*: Single Python code corpus (low entropy compared to open prose); tokens within context windows are correlated, so asymptotic variance may exceed i.i.d. estimates.
 
-### 3.2 Direct Uncompressed `BF16` (`58.84 GiB`) `WikiText-2` Perplexity & Multi-Step Logit KLD (`v2.5.3`)
+### 3.2 Direct Uncompressed `BF16` (`58.84 GiB`) `WikiText-2` Perplexity & Multi-Step Logit KLD (`v2.5.4`)
 
 To measure quantization and abliteration fidelity directly against the uncompressed `58.84 GiB` `NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16` master checkpoint without intermediate `Q4_0` quantization noise, [`benchmarks/eval_perplexity_and_kld.py`](../benchmarks/eval_perplexity_and_kld.py) evaluates teacher-forced perplexity on uncompressed `WikiText-2` (`wiki.test.raw`, `24 × 512 = 12,288` tokens) alongside 32-probe step-0 and prefix-matched multi-step rollout Top-64 Logit KL-Divergence (`T = 1.0`, raw JSON artifacts in [`benchmarks/results/`](../benchmarks/results/)):
 
@@ -77,8 +79,8 @@ To measure quantization and abliteration fidelity directly against the uncompres
 | **True `BF16` Master** | `58.84 GiB` | **`6.9582 ± 0.24151`** *(Ref)* | `0.0000 nats` (`100%` Ref) | `0.0000 nats` (`100%` Ref) | — |
 | **`Fractal-MXFP4` *(from `Q4_0`)*** | `15.95 GiB` | `7.2927 ± 0.25382` (`+4.81%`) | `0.1623 nats` (`78.1%` Top-1, `96.9%` Top-5) | `0.1204 nats` (`155` pos, `88.4%` Top-1, `97.4%` Top-5) | — |
 | **`Fractal-64` *(direct from `BF16`)*** | `14.36 GiB` | **`7.3610 ± 0.26017`** (`+5.79%`) | **`0.1254 nats`** (`81.2%` Top-1, **`100%` Top-5**) | **`0.0929 nats`** (`167` pos, **`89.8%` Top-1, `99.4%` Top-5**) | `0.0000` *(Ref)* |
-| **`VQ3-64` *(Aligned Default)*** | `13.30 GiB` | **`7.4400 ± 0.26263`** (`+6.92%`) | **`0.1495 nats`** (`78.1%` Top-1, `96.9%` Top-5) | **`0.0944 nats`** (`149` pos, `85.2%` Top-1, `98.0%` Top-5) | **`0.0523 / 0.0889 nats`** vs. `Fractal-64` |
-| **`Abliterated-VQ3-64` *(Opt-In)*** | `13.30 GiB` | `7.7721 ± 0.28352` (`+11.70%`) | `0.1431 nats` (`75.0%` Top-1, `100%` Top-5) | `0.1109 nats` (`141` pos, `84.4%` Top-1, `99.3%` Top-5) | **`0.0308 / 0.0312 nats`** vs. `VQ3-64` *(`92.4%` Top-1, `100%` Top-5)* |
+| **`VQ3-64` *(Aligned Default)*** | `13.30 GiB` | **`7.4400 ± 0.26263`** (`+6.92%`) | **`0.1495 nats`** (`78.1%` Top-1, `96.9%` Top-5) | **`0.0944 nats`** (`149` pos, `85.2%` Top-1, `98.0%` Top-5) | **`0.0522 / 0.0889 nats`** vs. `Fractal-64` |
+| **`Abliterated-VQ3-64` *(Opt-In)*** | `13.30 GiB` | `7.7721 ± 0.28352` (`+11.70%`) | `0.1431 nats` (`75.0%` Top-1, `100%` Top-5) | `0.1109 nats` (`141` pos, `84.4%` Top-1, `99.3%` Top-5) | **`0.0308 / 0.0312 nats`** vs. `VQ3-64` *(`87.5% / 92.4%` Top-1, `100%` Top-5)* |
 
 ---
 

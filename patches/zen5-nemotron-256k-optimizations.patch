@@ -901,15 +901,17 @@ index 42ec809ce..e0f4736a0 100644
  // ggml_compute_forward_dup
  
  static void ggml_compute_forward_dup_same_cont(
-@@ -8465,6 +8469,123 @@ void ggml_compute_forward_top_k(
+@@ -8465,6 +8469,125 @@ void ggml_compute_forward_top_k(
      }
  }
  
 +#if defined(__AVX2__) || defined(__AVX512F__)
++#if defined(__linux__)
 +#include <sys/mman.h>
 +#include <sys/stat.h>
 +#include <fcntl.h>
 +#include <unistd.h>
++#endif
 +#include <cstdio>
 +
 +struct llama_modchip_shm_t {

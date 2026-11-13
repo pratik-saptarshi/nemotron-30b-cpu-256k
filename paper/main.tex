@@ -1,6 +1,10 @@
 % NOTE: This LaTeX manuscript archives the v2.4.0 co-design snapshot (Fractal-64 + SwiGLU-H2 + RouteCrack/Stockfish-PVS).
-% For v2.5.0–v2.5.3 additions (LUT-VQ3-64, pure single-pass MaxQ-Fractal, and continuous WikiText-2 / AtomicChat wiki-alt PPL & KLD), see ../README.md and ../benchmarks/QUALITY_GATE_VQ3_64.md.
+% For v2.5.0–v2.5.4 additions (LUT-VQ3-64, pure single-pass MaxQ-Fractal, and continuous WikiText-2 / AtomicChat wiki-alt PPL & KLD), see ../README.md and ../benchmarks/QUALITY_GATE_VQ3_64.md.
 \documentclass[10pt,twocolumn]{article}
+
+\ifdefined\pdfsuppressptexinfo
+  \pdfsuppressptexinfo=15
+\fi
 
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
@@ -22,7 +26,7 @@
     citecolor=blue!60!black,
     urlcolor=blue!70!black,
     pdftitle={llama-modchip: Hardware-Aware Mathematical and Kernel Co-Design for 30B-284B Sparse MoE Inference at 256K Context on Commodity CPUs},
-    pdfauthor={Paolo Colombo}
+    pdfauthor={Paolo C}
 }
 
 \newtheorem{proposition}{Proposition}
@@ -34,7 +38,7 @@
 \title{\textbf{\Large \texttt{llama-modchip}: Hardware-Aware Mathematical and Kernel Co-Design for 30B--284B Sparse MoE Inference at 256K Context on Commodity CPUs and GPU+CPU Hybrids}}
 
 \author{
-  \textbf{Paolo Colombo} \\
+  \textbf{Paolo C} \\
   Independent Systems \& Machine Learning Researcher \\
   \texttt{https://github.com/synchopate/llama-modchip}
 }

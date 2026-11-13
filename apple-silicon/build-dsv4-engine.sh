@@ -42,6 +42,10 @@ for p in "$REPO"/patches/apple-silicon/*.patch; do
     echo "[build-dsv4-engine] applying $(basename "$p")" >&2
     git apply "$p"
 done
+if [[ -f "$REPO/patches/lut-vq3-64-avx512-vbmi.patch" ]]; then
+    echo "[build-dsv4-engine] applying lut-vq3-64-avx512-vbmi.patch" >&2
+    git apply "$REPO/patches/lut-vq3-64-avx512-vbmi.patch"
+fi
 if [[ -f "$REPO/patches/dsv4-ipc-hardening.patch" ]]; then
     echo "[build-dsv4-engine] applying dsv4-ipc-hardening.patch" >&2
     git apply "$REPO/patches/dsv4-ipc-hardening.patch"

@@ -210,7 +210,8 @@ void quantize_bf16_to_vq3_0_omp(const uint16_t * src_bf16, void * dst_vq3, int64
     const int64_t nblk_row = ncol / 64;
     #pragma omp parallel
     {
-        float * row_f32 = (float *)malloc(ncol * sizeof(float));
+        float * row_f32 = (float *)malloc((size_t)ncol * sizeof(float));
+        if (!row_f32) { fprintf(stderr, "OOM in transcode_any_to_vq3_0_omp\n"); abort(); }
         #pragma omp for schedule(static)
         for (int64_t r = 0; r < nrow; ++r) {
             const uint16_t * sr = src_bf16 + r * ncol;
@@ -231,19 +232,13 @@ void dequantize_row_q2_0_local(const block_q2_0 * restrict x, float * restrict y
             eff_s[b]     = d * (float)(4 + (x[i].scales[b] & 0x0F));
             eff_s[b + 4] = d * (float)(4 + ((x[i].scales[b] >> 4) & 0x0F));
         }
-        uint64_t qh64;
-        memcpy(&qh64, x[i].qh, sizeof(qh64));
-        for (int b = 0; b < 4; ++b) {
-            const int shift = 2 * b;
-            const float s_lo = eff_s[2 * b + 0];
-            const float s_hi = eff_s[2 * b + 1];
-            for (int l = 0; l < 8; ++l) {
-                const int j0 = b * 16 + l;
-                const uint8_t idx0 = ((x[i].qs[l] >> shift) & 3) | (((qh64 >> j0) & 1) << 2);
-                y[i * 64 + j0] = (float)kvalues_fractal3[idx0] * s_lo;
-                const int j1 = b * 16 + l + 8;
-                const uint8_t idx1 = ((x[i].qs[l + 8] >> shift) & 3) | (((qh64 >> j1) & 1) << 2);
-                y[i * 64 + j1] = (float)kvalues_fractal3[idx1] * s_hi;
+        for (int g = 0; g < 4; ++g) {
+            for (int k_idx = 0; k_idx < 16; ++k_idx) {
+                const int j = g * 16 + k_idx;
+                const uint8_t lo2 = (x[i].qs[k_idx] >> (2 * g)) & 0x03;
+                const uint8_t hi1 = (x[i].qh[k_idx & 7] >> (2 * g + (k_idx >> 3))) & 0x01;
+                const uint8_t idx = (uint8_t)(lo2 | (hi1 << 2));
+                y[i * 64 + j] = eff_s[j >> 3] * (float)kvalues_fractal3[idx];
             }
         }
     }
@@ -256,7 +251,8 @@ void transcode_q2_0_to_vq3_0_omp(const void * src_q2_0, void * dst_vq3, int64_t 
     const int64_t nblk_row = ncol / 64;
     #pragma omp parallel
     {
-        float * row_f32 = (float *)malloc(ncol * sizeof(float));
+        float * row_f32 = (float *)malloc((size_t)ncol * sizeof(float));
+        if (!row_f32) { fprintf(stderr, "OOM in transcode_q2_0_to_vq3_0_omp\n"); abort(); }
         #pragma omp for schedule(static)
         for (int64_t r = 0; r < nrow; ++r) {
             dequantize_row_q2_0_local(x + r * nblk_row, row_f32, ncol);
@@ -358,7 +354,8 @@ void transcode_any_to_vq3_0_omp(const void * src, int orig_type, void * dst_vq3,
 
     #pragma omp parallel
     {
-        float * row_f32 = (float *)malloc(ncol * sizeof(float));
+        float * row_f32 = (float *)malloc((size_t)ncol * sizeof(float));
+        if (!row_f32) { fprintf(stderr, "OOM in transcode_any_to_vq3_0_omp\n"); abort(); }
         #pragma omp for schedule(static)
         for (int64_t r = 0; r < nrow; ++r) {
             const void * sr = x + (size_t)r * row_bytes_in;

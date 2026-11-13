@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# install.sh — Interactive Zero-to-Running Installer for llama-modchip (v2.5.3)
+# install.sh — Interactive Zero-to-Running Installer for llama-modchip (v2.5.4)
 # ==============================================================================
 # Usage:
 #   One-liner (from scratch):
@@ -44,6 +44,43 @@ if [[ -z "$SCRIPT_SOURCE" ]] || [[ ! -f "$(dirname "$SCRIPT_SOURCE")/patches/zen
 fi
 
 REPO_ROOT="$(cd "$(dirname "$SCRIPT_SOURCE")" && pwd)"
+
+resolve_path() {
+    local p="$1"
+    if command -v python3 >/dev/null 2>&1; then
+        python3 - "$p" <<'PYEOF'
+import os, sys
+print(os.path.abspath(os.path.expanduser(sys.argv[1])))
+PYEOF
+    elif [[ "$p" == /* ]]; then
+        printf '%s\n' "$p"
+    else
+        printf '%s/%s\n' "$PWD" "$p"
+    fi
+}
+
+compute_sha256() {
+    local f="$1"
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$f" | awk '{print $1}'
+    elif command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$f" | awk '{print $1}'
+    else
+        python3 - "$f" <<'PYEOF'
+import hashlib, sys
+h = hashlib.sha256()
+with open(sys.argv[1], "rb") as fp:
+    for chunk in iter(lambda: fp.read(1048576), b""):
+        h.update(chunk)
+print(h.hexdigest())
+PYEOF
+    fi
+}
+
+if [[ -z "${WORKSPACE_DIR:-}" && -f "${REPO_ROOT}/.modchip_workspace" ]]; then
+    SAVED_WS="$(head -n 1 "${REPO_ROOT}/.modchip_workspace" 2>/dev/null | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' || true)"
+    [[ -n "$SAVED_WS" ]] && WORKSPACE_DIR="$SAVED_WS"
+fi
 WORKSPACE_DIR="${WORKSPACE_DIR:-${REPO_ROOT}/workspace}"
 MODEL_PATH="${MODEL_PATH:-}"
 MODEL_EXPLICIT=0
@@ -67,7 +104,7 @@ GATEWAY_PORT="${GATEWAY_PORT:-8787}"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --workspace)
-            WORKSPACE_DIR="$(realpath -m "$2")"
+            WORKSPACE_DIR="$(resolve_path "$2")"
             shift 2
             ;;
         --preset)
@@ -75,7 +112,7 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --model)
-            MODEL_PATH="$(realpath -m "$2")"
+            MODEL_PATH="$(resolve_path "$2")"
             MODEL_EXPLICIT=1
             shift 2
             ;;
@@ -102,7 +139,7 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --corpus)
-            USER_CORPUS_DIR="$(realpath -m "$2")"
+            USER_CORPUS_DIR="$(resolve_path "$2")"
             shift 2
             ;;
         --port)
@@ -336,7 +373,7 @@ else
             MODEL_FAMILY="dsv4"
             MODEL_LABEL="DeepSeek-V4-Flash-0731-MaxQ-Fractal (284B · 56.93 GiB · 3 shards)"
             MODEL_REPO="Synchopate/DeepSeek-V4-Flash-0731-MaxQ-Fractal-64GB-CPU-GGUF"
-            MODEL_REV="3619ba39ae7ac349548ce2cdff1e1c2ca3a71cb5"
+            MODEL_REV="cffab09528974ece3aedc6611c534e43e614e722"
             MODEL_SUBDIR="dsv4-maxq-fractal"
             MODEL_SHARDS=(
                 "DeepSeek-V4-Flash-0731-MaxQ-Fractal-00001-of-00003.gguf"
@@ -355,7 +392,7 @@ else
             MODEL_FAMILY="dsv4"
             MODEL_LABEL="DeepSeek-V4-Flash-0731-VQ3 (284B · 56.40 GiB · 3 shards)"
             MODEL_REPO="Synchopate/DeepSeek-V4-Flash-0731-VQ3-64GB-CPU-GGUF"
-            MODEL_REV="dd470e619f2a4926adbdd471010423d4b686c1b4"
+            MODEL_REV="ed06568f387f4bc7114e848f4c6466fe06782c3c"
             MODEL_SUBDIR="dsv4-vq3"
             MODEL_SHARDS=(
                 "DeepSeek-V4-Flash-0731-VQ3-00001-of-00003.gguf"
@@ -374,7 +411,7 @@ else
             MODEL_FAMILY="dsv4"
             MODEL_LABEL="DeepSeek-V4-Flash-0731-Fractal (284B · 56.57 GiB · 3 shards)"
             MODEL_REPO="Synchopate/DeepSeek-V4-Flash-0731-Fractal-64GB-CPU-GGUF"
-            MODEL_REV="a0758c031751ef02e3cd63d330183e5525bd8cc9"
+            MODEL_REV="7e11503ad1877699cad2781e0b428699eeaf16db"
             MODEL_SUBDIR="dsv4-fractal"
             MODEL_SHARDS=(
                 "DeepSeek-V4-Flash-0731-Fractal-00001-of-00003.gguf"
@@ -394,7 +431,7 @@ else
             IS_ABLITERATED=1
             MODEL_LABEL="DeepSeek-V4-Flash-0731-Abliterated-Fractal (284B · 56.93 GiB · 3 shards)"
             MODEL_REPO="Synchopate/DeepSeek-V4-Flash-0731-Abliterated-Fractal-64GB-CPU-GGUF"
-            MODEL_REV="2ebd8a1e5730b1e43ab6a84178e9b949d223f3e9"
+            MODEL_REV="80f9cc8c5519d090856925934ad23e394f30eff7"
             MODEL_SUBDIR="dsv4-abliterated-fractal"
             MODEL_SHARDS=(
                 "DeepSeek-V4-Flash-0731-Abliterated-Fractal-00001-of-00003.gguf"
@@ -413,7 +450,7 @@ else
             MODEL_FAMILY="nemotron"
             MODEL_LABEL="NVIDIA-Nemotron-3.5-30B-A3B-VQ3-64 (30B · 13.30 GiB)"
             MODEL_REPO="Synchopate/NVIDIA-Nemotron-3.5-30B-A3B-VQ3-64-CPU-GGUF"
-            MODEL_REV="c3dd3a506502fd9accb5c6dc9055a7c3dd4aba9a"
+            MODEL_REV="738e9465c7fdc5323a90f4552e65529bd41f38b2"
             MODEL_SHARDS=("NVIDIA-Nemotron-3.5-30B-A3B-VQ3-64.gguf")
             MODEL_SHARD_SIZES=(14282559040)
             MODEL_SHARD_SHA256S=("d273709749aa88fd5a5af59ed3a2d55354283e1ae8ae7483f85737dd01d42b76")
@@ -423,7 +460,7 @@ else
             MODEL_FAMILY="nemotron"
             MODEL_LABEL="NVIDIA-Nemotron-3.5-30B-A3B-Fractal-64 (30B · 14.36 GiB)"
             MODEL_REPO="Synchopate/NVIDIA-Nemotron-3.5-30B-A3B-Fractal-64-CPU-GGUF"
-            MODEL_REV="fab73258754e9f4a2d21077af5300883bae201c0"
+            MODEL_REV="a16c8eb099aa986998885f83d705daa3cc068da8"
             MODEL_SHARDS=("NVIDIA-Nemotron-3.5-30B-A3B-Fractal-64.gguf")
             MODEL_SHARD_SIZES=(15420034624)
             MODEL_SHARD_SHA256S=("71c22562ab908d5d3373e3a010544e977af2499e3cc476fc7646d402a8a550ee")
@@ -434,7 +471,7 @@ else
             IS_ABLITERATED=1
             MODEL_LABEL="NVIDIA-Nemotron-3.5-30B-A3B-Abliterated-VQ3-64 (30B · 13.30 GiB)"
             MODEL_REPO="Synchopate/NVIDIA-Nemotron-3.5-30B-A3B-Abliterated-VQ3-64-CPU-GGUF"
-            MODEL_REV="db9a06beb7c90fc1e5fd5570a874ac7f476a85bb"
+            MODEL_REV="40cf7b8db6d01d163dd6c4430565ad631803382b"
             MODEL_SHARDS=("NVIDIA-Nemotron-3.5-30B-A3B-Abliterated-VQ3-64.gguf")
             MODEL_SHARD_SIZES=(14282559488)
             MODEL_SHARD_SHA256S=("456d5561acf609850c816fa15de7dbff93bd92430f64aadd85682dacc6f02fa4")
@@ -591,14 +628,14 @@ LLAMA_BUILD_DIR="${WORKSPACE_DIR}/llama.cpp"
 
 PREBUILT_OK=0
 if [[ "$USE_PREBUILT" == "1" && -n "$X86_PREBUILT_ASSET" ]]; then
-    ASSET_URL="https://github.com/synchopate/llama-modchip/releases/download/v2.5.3/${X86_PREBUILT_ASSET}"
-    FALLBACK_ASSET_URL="https://huggingface.co/Synchopate/DeepSeek-V4-Flash-0731-MaxQ-Fractal-64GB-CPU-GGUF/resolve/3619ba39ae7ac349548ce2cdff1e1c2ca3a71cb5/${X86_PREBUILT_ASSET}"
+    ASSET_URL="https://github.com/synchopate/llama-modchip/releases/download/v2.5.4/${X86_PREBUILT_ASSET}"
+    FALLBACK_ASSET_URL="https://huggingface.co/Synchopate/DeepSeek-V4-Flash-0731-MaxQ-Fractal-64GB-CPU-GGUF/resolve/cffab09528974ece3aedc6611c534e43e614e722/${X86_PREBUILT_ASSET}"
     EXPECTED_BIN_SHA256="09f2a1accacb1454aaf0d9a8d75dda8f7cca36df81138eb57bfee45137ef07e4"
-    [[ "$X86_PREBUILT_ASSET" == *-avx512 ]] && EXPECTED_BIN_SHA256="85fe1e2a780ce7c88d99cf5f6fa384c2726dfeee247460924d6bf937efd19597"
+    [[ "$X86_PREBUILT_ASSET" == *-avx512 ]] && EXPECTED_BIN_SHA256="7cf2563ede8670b482ccc7e108d9810023f994a6ce9a3d7bd320f8393dd26304"
     echo "[*] CPUID selected portable precompiled binary: ${X86_PREBUILT_ASSET}"
     if curl -fL --progress-bar -o "${WORKSPACE_DIR}/bin/llama-server-nemotron.part" "$ASSET_URL" \
         || curl -fL --progress-bar -o "${WORKSPACE_DIR}/bin/llama-server-nemotron.part" "$FALLBACK_ASSET_URL"; then
-        ACTUAL_BIN_SHA256="$(sha256sum "${WORKSPACE_DIR}/bin/llama-server-nemotron.part" | awk '{print $1}')"
+        ACTUAL_BIN_SHA256="$(compute_sha256 "${WORKSPACE_DIR}/bin/llama-server-nemotron.part")"
         chmod +x "${WORKSPACE_DIR}/bin/llama-server-nemotron.part"
         SMOKE_ERR=""
         if [[ "$ACTUAL_BIN_SHA256" != "$EXPECTED_BIN_SHA256" ]]; then
@@ -731,7 +768,7 @@ else
         if [[ ${#MODEL_SHARD_SHA256S[@]} -gt "$idx" && -n "${MODEL_SHARD_SHA256S[$idx]}" ]]; then
             EXPECTED_SHA256="${MODEL_SHARD_SHA256S[$idx]}"
             echo "[*] Verifying SHA-256 checksum for ${SHARD_NAME}..."
-            ACTUAL_SHA256="$(sha256sum "${SHARD_DEST}.part" | awk '{print $1}')"
+            ACTUAL_SHA256="$(compute_sha256 "${SHARD_DEST}.part")"
             if [[ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]]; then
                 echo "[!] ERROR: SHA-256 mismatch for ${SHARD_DEST}.part (removing corrupt partial file)!" >&2
                 echo "    Expected: $EXPECTED_SHA256" >&2
@@ -789,6 +826,7 @@ else
 fi
 
 mkdir -p "${WORKSPACE_DIR}/run"
+printf '%s\n' "${WORKSPACE_DIR}" > "${REPO_ROOT}/.modchip_workspace"
 printf '%s\n' "${SERVER_PORT}" > "${WORKSPACE_DIR}/run/server_port"
 if [[ -n "$MODEL_PATH" ]]; then
     case "$MODEL_PATH" in
@@ -811,8 +849,10 @@ cat > "${REPO_ROOT}/start_server.sh" <<EOF
 # Usage: ./start_server.sh [/path/to/model.gguf] [extra llama-server flags, e.g. -n 4096]
 set -euo pipefail
 
+export WORKSPACE_DIR="\${WORKSPACE_DIR:-${WORKSPACE_DIR}}"
 export RC_TABLES_DIR="${WORKSPACE_DIR}/routecrack"
 export LD_LIBRARY_PATH="${LLAMA_BUILD_DIR}/build/bin:\${LD_LIBRARY_PATH:-}"
+export DYLD_LIBRARY_PATH="${LLAMA_BUILD_DIR}/build/bin:\${DYLD_LIBRARY_PATH:-}"
 
 MODEL="${MODEL_PATH}"
 PASS_ARGS=()
@@ -856,6 +896,7 @@ hw = mc.probe_hardware()
 info = mc.inspect_gguf(sys.argv[1])
 prof = mc.compute_modchip_profile(hw, info)
 print(f"export MODEL_ARCH=\"{info.arch}\"")
+print(f"export USE_REPACK=\"{1 if prof.use_repack else 0}\"")
 print(f"export LLAMA_KV_L3_WINDOW=\${{LLAMA_KV_L3_WINDOW:-{prof.l3_window}}}")
 print(f"export LLAMA_ATTN_WINDOW=\${{LLAMA_ATTN_WINDOW:-{prof.attn_window}}}")
 print(f"export LLAMA_ATTN_SINKS=\${{LLAMA_ATTN_SINKS:-{prof.attn_sinks}}}")
@@ -917,6 +958,28 @@ elif [[ "${TOTAL_RAM_GB}" -le 18 ]]; then
     echo "[i] 16GB RAM Swap Guard: defaulting to -c \${EFFECTIVE_CTX_SIZE} -ub \${UBATCH_SIZE} (~14.6 GiB VmRSS) to prevent swap thrashing."
 fi
 
+# Container / macOS /dev/shm capacity guard: fall back to workspace disk cache when /dev/shm is missing or <1 GiB (e.g. default 64 MiB Docker tmpfs)
+if [[ -z "\${MODCHIP_SLOT_SAVE_PATH:-}" && "\$SLOT_SAVE_DIR" == "/dev/shm" ]]; then
+    SHM_FREE_KIB="\$(df -Pk /dev/shm 2>/dev/null | awk 'NR==2 {print \$4}' || echo 0)"
+    if [[ ! -d /dev/shm || ! -w /dev/shm || "\${SHM_FREE_KIB:-0}" -lt 1048576 ]]; then
+        SLOT_SAVE_DIR="${WORKSPACE_DIR}/cache"
+        echo "[i] /dev/shm unavailable or <1 GiB free (\${SHM_FREE_KIB:-0} KiB); using disk slot cache at \${SLOT_SAVE_DIR}."
+    fi
+fi
+mkdir -p "\$SLOT_SAVE_DIR" 2>/dev/null || true
+
+DEFAULT_LOAD_MODE="none"
+[[ "\$(uname -s)" == "Darwin" ]] && DEFAULT_LOAD_MODE="mmap"
+LOAD_MODE="\${MODCHIP_LOAD_MODE:-\${DEFAULT_LOAD_MODE}}"
+
+REPACK_ARGS=()
+[[ "\${USE_REPACK:-1}" == "1" ]] && REPACK_ARGS=(--repack)
+
+LAUNCH_PREFIX=()
+if command -v taskset >/dev/null 2>&1 && [[ -n "\${TASKSET_MASK:-}" ]]; then
+    LAUNCH_PREFIX=(taskset -c "\${TASKSET_MASK}")
+fi
+
 SERVER_HOST="\${SERVER_HOST:-${SERVER_HOST}}"
 SERVER_PORT="\${SERVER_PORT:-${SERVER_PORT}}"
 # Optional space-separated extra llama-server flags (no nested quotes), e.g. EXTRA_SERVER_ARGS="-ngl 99 --n-cpu-moe 44"
@@ -925,7 +988,7 @@ if [[ -n "\${EXTRA_SERVER_ARGS:-}" ]]; then
     read -r -a EXTRA_ARGS_ARR <<< "\${EXTRA_SERVER_ARGS}"
 fi
 echo "[*] Starting llama-server on http://\${SERVER_HOST}:\${SERVER_PORT} (Decode: \${DECODE_THREADS}T / Prefill: \${BATCH_THREADS}T [mask: \${TASKSET_MASK}], Context: \${EFFECTIVE_CTX_SIZE}, ubatch: \${UBATCH_SIZE})..."
-exec taskset -c "\${TASKSET_MASK}" "${WORKSPACE_DIR}/bin/llama-server-nemotron" \\
+exec \${LAUNCH_PREFIX[@]+"\${LAUNCH_PREFIX[@]}"} "${WORKSPACE_DIR}/bin/llama-server-nemotron" \\
   --model "\$MODEL" \\
   --port "\${SERVER_PORT}" \\
   --host "\${SERVER_HOST}" \\
@@ -940,8 +1003,8 @@ exec taskset -c "\${TASKSET_MASK}" "${WORKSPACE_DIR}/bin/llama-server-nemotron" 
   --cache-type-k q8_0 \\
   --cache-type-v "\${CACHE_V_TYPE}" \\
   --flash-attn auto \\
-  --load-mode none \\
-  --repack \\
+  --load-mode "\${LOAD_MODE}" \\
+  \${REPACK_ARGS[@]+"\${REPACK_ARGS[@]}"} \\
   --cache-reuse 256 \\
   --slot-save-path "\${SLOT_SAVE_DIR}" \\
   --ctx-checkpoints 64 \\

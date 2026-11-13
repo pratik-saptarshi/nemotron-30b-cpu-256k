@@ -200,7 +200,7 @@ static inline uint64_t ggml_vq3_unpack_scales(uint32_t s24) {
 #else
     uint64_t m_all = 0x0202020202020202ULL;
     for (int b = 0; b < 8; ++b) {
-        m_all |= ((uint64_t)((s24 >> (3 * b)) & 0x7U)) << (8 * b);
+        m_all += ((uint64_t)((s24 >> (3 * b)) & 0x7U)) << (8 * b);
     }
     return m_all;
 #endif

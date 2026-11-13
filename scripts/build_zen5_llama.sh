@@ -11,13 +11,13 @@ TARGET_MODEL="${TARGET_MODEL:-nemotron}"
 if [[ "$TARGET_MODEL" == "dsv4" || "$TARGET_MODEL" == "deepseek" ]]; then
     PATCH_FILE="${REPO_ROOT}/patches/deepseek-v4-flash-fractal-256k.patch"
     DSV4_IPC_PATCH="${REPO_ROOT}/patches/dsv4-ipc-hardening.patch"
+    SERIES_DIR="${REPO_ROOT}/patches/apple-silicon"
 else
     PATCH_FILE="${REPO_ROOT}/patches/zen5-nemotron-256k-optimizations.patch"
     DSV4_IPC_PATCH=""
+    SERIES_DIR="${REPO_ROOT}/patches/nemotron-apple-silicon"
 fi
 VQ3_PATCH="${REPO_ROOT}/patches/lut-vq3-64-avx512-vbmi.patch"
-# patches stacked on top of PATCH_FILE, applied in file-name order
-SERIES_DIR="${REPO_ROOT}/patches/nemotron-apple-silicon"
 SPEC_CPP_DIR="${REPO_ROOT}/speculative/cpp"
 OS_NAME="$(uname -s)"
 ARCH_NAME="$(uname -m)"
@@ -76,14 +76,14 @@ if [[ ${#SERIES_PATCHES[@]} -gt 0 ]]; then
         # A partly applied series must not be built, and the script cannot tell the patches' changes from the user's own
         # edits, so it only resets the tree when asked to.
         if [[ "${RESET_LLAMA_TREE:-0}" == "1" ]]; then
-            echo "[*] Only $N_SERIES_IN_TREE of ${#SERIES_PATCHES[@]} patches from patches/nemotron-apple-silicon/ are in $LLAMA_DIR; RESET_LLAMA_TREE=1: resetting its working tree to clean $LLAMA_COMMIT (uncommitted changes are discarded)..."
+            echo "[*] Only $N_SERIES_IN_TREE of ${#SERIES_PATCHES[@]} patches from $(basename "$SERIES_DIR")/ are in $LLAMA_DIR; RESET_LLAMA_TREE=1: resetting its working tree to clean $LLAMA_COMMIT (uncommitted changes are discarded)..."
             git -C "$LLAMA_DIR" checkout HEAD -- .
             rm -f "$LLAMA_DIR/ggml/src/vq3_codebook.h"
             while read -r created_file; do
                 [[ -n "$created_file" ]] && rm -f "$LLAMA_DIR/$created_file"
             done < <(git -C "$REPO_ROOT" apply --summary "$PATCH_FILE" 2>/dev/null | awk '/create mode/{print $4}')
         else
-            echo "[!] ERROR: Only $N_SERIES_IN_TREE of ${#SERIES_PATCHES[@]} patches from patches/nemotron-apple-silicon/ are in $LLAMA_DIR (an interrupted run?)." >&2
+            echo "[!] ERROR: Only $N_SERIES_IN_TREE of ${#SERIES_PATCHES[@]} patches from $(basename "$SERIES_DIR")/ are in $LLAMA_DIR (an interrupted run?)." >&2
             echo "[!] Nothing was changed. To discard the uncommitted changes in $LLAMA_DIR and apply everything again, run:" >&2
             echo "[!]   RESET_LLAMA_TREE=1 $0 $LLAMA_DIR     (or: git -C $LLAMA_DIR checkout -- .  and run again)" >&2
             exit 1
@@ -133,7 +133,7 @@ if [[ "$TARGET_MODEL" != "dsv4" && "$TARGET_MODEL" != "deepseek" ]]; then
 fi
 
 if [[ "$SERIES_APPLIED" != "1" && ${#SERIES_PATCHES[@]} -gt 0 ]]; then
-    echo "[*] Applying patches/nemotron-apple-silicon/ (Q2_0 tests, Metal Q2_0 decode kernel, gguf-py Q2_0 block size)..."
+    echo "[*] Applying patches/$(basename "$SERIES_DIR")/ (Apple Silicon ARM64 NEON + Metal Q2_0 kernels)..."
     for p in "${SERIES_PATCHES[@]}"; do
         if git -C "$LLAMA_DIR" apply --check "$p"; then
             git -C "$LLAMA_DIR" apply "$p"
@@ -186,6 +186,7 @@ if [[ "$OS_NAME" == "Darwin" ]]; then
     CMAKE_ISA_ARGS+=(
         -DGGML_OPENMP="${OPENMP_OPT}"
         -DGGML_METAL="${METAL_OPT}"
+        -DGGML_METAL_EMBED_LIBRARY="${GGML_METAL_EMBED_LIBRARY:-ON}"
         -DGGML_BLAS="${BLAS_OPT}"
     )
 elif [[ "$ARCH_NAME" == "aarch64" || "$ARCH_NAME" == "arm64" ]]; then
@@ -247,13 +248,15 @@ else
             -DCMAKE_CXX_FLAGS="-march=skylake-avx512 -mavx512vbmi -mavx512vnni"
             "${PORTABLE_LINK_ARGS[@]}"
         )
-    elif echo "$CPU_FLAGS" | grep -q "avx512_vnni" && echo "$CPU_FLAGS" | grep -q "avx512_bf16"; then
-        echo "[*] Detected AVX-512 VNNI + BF16 (AMD Zen 4/5 or Intel Xeon) — enabling AVX-512 tile kernels..."
+    elif echo "$CPU_FLAGS" | grep -q "avx512f" && echo "$CPU_FLAGS" | grep -q "avx512_vnni"; then
+        echo "[*] Detected AVX-512 VNNI (AMD Zen 4/5 or Intel Ice Lake+) — enabling AVX-512 tile kernels..."
         CMAKE_ISA_ARGS+=(
             -DGGML_AVX512=ON
             -DGGML_AVX512_VNNI=ON
-            -DGGML_AVX512_BF16=ON
         )
+        if echo "$CPU_FLAGS" | grep -q "avx512_bf16"; then
+            CMAKE_ISA_ARGS+=(-DGGML_AVX512_BF16=ON)
+        fi
         if echo "$CPU_FLAGS" | grep -qE "avx512_?vbmi"; then
             CMAKE_ISA_ARGS+=(-DGGML_AVX512_VBMI=ON)
         fi

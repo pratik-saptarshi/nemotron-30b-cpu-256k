@@ -125,7 +125,7 @@ function Set-MoeConfig([int]$TopK, [double]$MinW) {
         $path = Join-Path $cfgBase "dsv4_moe_cfg.bin"
         $fs = New-Object System.IO.FileStream($path, [System.IO.FileMode]::OpenOrCreate, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::ReadWrite)
         try {
-            $fs.SetLength(0)
+            # Write 32 bytes in-place without SetLength(0) so live updates succeed while llama-server.exe holds MapViewOfFile
             $fs.Write($bytes, 0, 32)
             $fs.Flush()
         } finally { $fs.Close() }
@@ -143,7 +143,11 @@ $modelInfo = Get-Item -LiteralPath $modelPath
 $modelGB = [math]::Round($modelInfo.Length / 1GB, 2)
 $patched = $exe -like "*bin-modchip*" -or $exe -like "*build-mingw*"
 
-Write-Head "llama-modchip v2.5.3 -- DeepSeek-V4-Flash (MaxQ-Fractal / VQ3-64 / Fractal-64) on Windows"
+$isNemotron = $modelInfo.Name -match '(?i)nemotron'
+$modelAlias = if ($isNemotron) { "nemotron-3.5-30b-a3b" } else { "deepseek-v4-flash" }
+$kvTypeV    = if ($isNemotron -and $KvType -eq "q8_0") { "q4_0" } else { $KvType }
+
+Write-Head ("llama-modchip v2.5.4 -- {0} (Fractal-64 / VQ3-64) on Windows" -f $(if ($isNemotron) { "NVIDIA-Nemotron-3.5-30B-A3B" } else { "DeepSeek-V4-Flash 284B" }))
 
 if ($Threads -le 0) { $Threads = [math]::Max(1, $hw.PhysCores) }
 
@@ -203,7 +207,7 @@ $srvArgs = @(
     "-m", $modelPath,
     "--host", "127.0.0.1",
     "--port", "$Port",
-    "--alias", "deepseek-v4-flash",
+    "--alias", $modelAlias,
     "-c", "$Ctx",
     "-np", "1",
     "-t", "$Threads",
@@ -212,21 +216,28 @@ $srvArgs = @(
     "-ub", "2048",
     "-fa", "on",
     "--cache-type-k", $KvType,
-    "--cache-type-v", $KvType,
+    "--cache-type-v", $kvTypeV,
     "--cache-reuse", "256",
     "--jinja",
     "--metrics",
-    "--reasoning-format", "deepseek",
-    # Anti-loop sampling: this 1.56 bpw build repeats whole sentences verbatim without penalties.
+    "--reasoning-format", "deepseek"
+)
+if ($isNemotron) {
+    $srvArgs += @("--ctx-checkpoints", "64", "--checkpoint-min-step", "128")
+    if ($MoeTopK -lt 6) { $env:LLAMA_MOE_TOP_K = "$MoeTopK" }
+} else {
+    # Anti-loop sampling for ultra-low-bpw 284B builds.
     # Do NOT set --dry-sequence-breaker none: with no breakers DRY penalises tokens that repeat
     # inside the chat template itself and the output turns to nonsense.
-    "--repeat-penalty", "1.1",
-    "--repeat-last-n", "256",
-    "--dry-multiplier", "0.8",
-    "--dry-base", "1.75",
-    "--dry-allowed-length", "3",
-    "--dry-penalty-last-n", "1024"
-)
+    $srvArgs += @(
+        "--repeat-penalty", "1.1",
+        "--repeat-last-n", "256",
+        "--dry-multiplier", "0.8",
+        "--dry-base", "1.75",
+        "--dry-allowed-length", "3",
+        "--dry-penalty-last-n", "1024"
+    )
+}
 if ($Thinking) { $srvArgs += @("--reasoning-budget", "-1") } else { $srvArgs += @("--reasoning-budget", "0") }
 if ($NPredict -ge 0) { $srvArgs += @("-n", "$NPredict") }
 

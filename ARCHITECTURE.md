@@ -11,7 +11,7 @@
 
 Conventional wisdom states that running a **30-Billion parameter LLM** with a **256,000-token context window** requires enterprise GPUs with at least 48–80 GB of high-bandwidth VRAM. On a standard CPU, dense 30B Transformers crawl at **2–4 tokens/second**, and their Key-Value (KV) caches explode to tens of gigabytes at long contexts, causing prefill times measured in tens of minutes and catastrophic cache thrashing.
 
-This paper demonstrates how to achieve **306.8 tok/s prompt prefill**, **25.3–32.7 tok/s pure autoregressive decoding** (short/medium context), **19.5–28.0+ tok/s live interactive agent generation** at **22K–35K active context** (40 tools loaded), and **50.5–65.0 tok/s burst generation** (via draftless linear & statistical speculative decoding without a small draft model) across a **262,144-token (256K) context window** on a **single mobile/workstation CPU** (**AMD Ryzen 9 9955HX**, 64 GB DDR5 RAM, **no GPU**).
+This paper demonstrates how to achieve **306.8 tok/s prompt prefill**, **25.3–32.7 tok/s pure autoregressive decoding** (short/medium context with opt-in `LLAMA_MOE_TOP_K=4` router truncation; `v2.5.2+` defaults to unpruned `Top-6` unless `LLAMA_MOE_TOP_K=4` is set), **19.5–28.0+ tok/s live interactive agent generation** at **22K–35K active context** (40 tools loaded), and **50.5–65.0 tok/s burst generation** (via draftless linear & statistical speculative decoding without a small draft model) across a **262,144-token (256K) context window** on a **single mobile/workstation CPU** (**AMD Ryzen 9 9955HX**, 64 GB DDR5 RAM, **no GPU**).
 
 ---
 
@@ -190,7 +190,7 @@ for (int64_t ic = ic_start; ic < ic_end; ++ic) {
 ### 3.2. Optimization 2: Bidirectional Hardware Non-Temporal L3 Cache Isolation (`_MM_HINT_NTA`)
 On a CPU without a dedicated SRAM scratchpad, two competing data streams fight over the 64 MB L3 cache during every token step:
 1. **Attention KV Cache Stream**: Reading older KV vectors in the window evicts shared MoE router weights and Mamba-2 convolution kernels.
-2. **MoE Expert Weight Stream (1.8 GB/token)**: Streaming 4 selected experts per layer across 52 layers pulls 1.8 GB of cold weights through the cache hierarchy, evicting the hot L3-resident KV cache!
+2. **MoE Expert Weight Stream (1.4–1.8 GB/token)**: Streaming 4–6 selected experts per layer (`6` unpruned default in `v2.5.2+`, `4` with opt-in `LLAMA_MOE_TOP_K=4`) across 52 layers pulls ~1.4–1.8 GB of cold weights through the cache hierarchy, evicting the hot L3-resident KV cache!
 
 **Bidirectional Non-Temporal Cache Isolation** is implemented across both `ops.cpp` and `arch/x86/quants.c`:
 1. **Distance-Aware KV Cache NTA Prefetching (`ggml/src/ggml-cpu/ops.cpp`)**:
@@ -546,9 +546,9 @@ Not all optimizations are safe on every GGUF architecture. [`scripts/llama_modch
 
 | Model GGUF | Architecture & Layers | KV / Token (`Q8_0/Q4_0` EAKV) | Auto `L3_WINDOW` | Default Attention Policy | `RouteCrack` Gate | MoE `Top-K` Pruning |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **`Nemotron-3.5-30B-A3B-Fractal-64`** (`14.36 GiB`) | `nemotron_h_moe` (`23 SSM + 23 MoE + 6 GQA`) | **`2.44 KB/tok`** *(`1.73 KB` in `Q4/Q4`)* | `2048` (`4.88 MiB`) | `Exact 256K (window=0)` | `Strict (84/92/96)` | `6 -> 4 (norm=True)` |
-| **`Nemotron-3.5-30B-A3B-Fractal-MXFP4`** (`15.95 GiB`) | `nemotron_h_moe` (`23 SSM + 23 MoE + 6 GQA`) | **`2.44 KB/tok`** *(`1.73 KB` in `Q4/Q4`)* | `2048` (`4.88 MiB`) | `Exact 256K (window=0)` | `Strict (84/92/96)` | `6 -> 4 (norm=True)` |
-| **`Nemotron-3.5-30B-A3B-Q4_0`** (`17.60 GiB`) | `nemotron_h_moe` (`23 SSM + 23 MoE + 6 GQA`) | **`2.44 KB/tok`** *(`1.73 KB` in `Q4/Q4`)* | `2048` (`4.88 MiB`) | `Exact 256K (window=0)` | `Strict (84/92/96)` | `6 -> 4 (norm=True)` |
+| **`Nemotron-3.5-30B-A3B-Fractal-64`** (`14.36 GiB`) | `nemotron_h_moe` (`23 SSM + 23 MoE + 6 GQA`) | **`2.44 KB/tok`** *(`1.73 KB` in `Q4/Q4`)* | `2048` (`4.88 MiB`) | `Exact 256K (window=0)` | `Strict (84/92/96)` | `Unpruned 6` *(opt-in `6 -> 4`)* |
+| **`Nemotron-3.5-30B-A3B-Fractal-MXFP4`** (`15.95 GiB`) | `nemotron_h_moe` (`23 SSM + 23 MoE + 6 GQA`) | **`2.44 KB/tok`** *(`1.73 KB` in `Q4/Q4`)* | `2048` (`4.88 MiB`) | `Exact 256K (window=0)` | `Strict (84/92/96)` | `Unpruned 6` *(opt-in `6 -> 4`)* |
+| **`Nemotron-3.5-30B-A3B-Q4_0`** (`17.60 GiB`) | `nemotron_h_moe` (`23 SSM + 23 MoE + 6 GQA`) | **`2.44 KB/tok`** *(`1.73 KB` in `Q4/Q4`)* | `2048` (`4.88 MiB`) | `Exact 256K (window=0)` | `Strict (84/92/96)` | `Unpruned 6` *(opt-in `6 -> 4`)* |
 | **`Qwen3-30B-A3B-Q4_K_M`** (`17.28 GiB`) | `qwen3moe` (`0 SSM + 48 GQA`) | `39.00 KB/tok` *(`27.65 KB` in `Q4/Q4`)* | `384` (`14.62 MiB`) | `Exact (0) / 3:1 SWA (stride=4)` | `CPU-MoE (80/90/95)` | `8 -> 4 (norm=True)` |
 | **`Nemotron-H-8B-Reasoning-128K`** (`4.6 GiB`) | `nemotron_h` (`48 SSM + 4 GQA`) | `6.50 KB/tok` | `2048` (`13.00 MiB`) | `Exact (window=0)` | `Strict (84/92/96)` | `LOCKED (Dense)` |
 | **`Llama-3-Security-40L-Q8_0`** (`23.3 GiB`) | `llama` (`0 SSM + 40 GQA`) | `65.00 KB/tok` | `256` (`16.25 MiB`) | `Exact (0) / 3:1 SWA (stride=4)` | `Balanced (78/88/94)` | `LOCKED (Dense)` |
@@ -635,7 +635,7 @@ BEFORE OPTIMIZATIONS: 58.8 ms / token (17.0 tok/s base)
  ├─ [███████████]                11.0 ms (19%) : Bit-Unpacking & AVX Shuffle Overhead (Unrepacked Q4_0)
  └─ [████████]                    7.8 ms (13%) : Mamba-2 SSM Scan + Dense Attention + OpenMP Migrations
 
-AFTER OPTIMIZATIONS: 39.5 ms / token (25.3 tok/s base | 50.5–65.0 tok/s w/ Draftless Speculation)
+AFTER OPTIMIZATIONS (w/ opt-in LLAMA_MOE_TOP_K=4): 39.5 ms / token (25.3 tok/s base | 50.5–65.0 tok/s w/ Draftless Speculation)
 [███████████████████████████████████████                   ] 39.5 ms TOTAL (-32.8% Base Latency)
  ├─ [█████████████████████████]  25.2 ms (64%) : Raw DDR5 Streaming (At physical hardware bus limit!)
  ├─ [██████]                      6.5 ms (16%) : Direct AVX-512 VNNI 8x8 Tile Compute (VPDPBUSD)

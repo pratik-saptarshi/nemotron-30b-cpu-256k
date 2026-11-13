@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-llama-modchip v2.5.3 — Zero-Dependency Interactive Terminal Chat & Shareable Benchmark Suite
+llama-modchip v2.5.4 — Zero-Dependency Interactive Terminal Chat & Shareable Benchmark Suite
 Connects to local Gateway (8787) or llama-server (8789/8080/8001), streams tokens live,
 and reports exact Prefill tok/s, Decode tok/s, TTFT, and Stockfish-PVS (M=7) draft acceptance.
 """
@@ -36,10 +36,22 @@ def detect_endpoint(explicit_url: Optional[str] = None) -> str:
     )
     if env_url:
         return env_url.rstrip("/")
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    ws_dir = os.environ.get("WORKSPACE_DIR", "").strip()
+    if not ws_dir:
+        ws_marker = os.path.join(repo_root, ".modchip_workspace")
+        if os.path.isfile(ws_marker):
+            try:
+                with open(ws_marker, "r", encoding="utf-8") as wf:
+                    ws_dir = wf.readline().strip()
+            except Exception:
+                pass
+    if not ws_dir:
+        ws_dir = os.path.join(repo_root, "workspace")
+
     gw_host = os.environ.get("GATEWAY_HOST", "").strip()
     if not gw_host:
-        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        gh_file = os.path.join(repo_root, "workspace", "run", "gateway_host")
+        gh_file = os.path.join(ws_dir, "run", "gateway_host")
         if os.path.isfile(gh_file):
             try:
                 with open(gh_file, "r", encoding="utf-8") as f:
@@ -47,7 +59,16 @@ def detect_endpoint(explicit_url: Optional[str] = None) -> str:
             except Exception:
                 pass
     gw_port = int(os.environ.get("GATEWAY_PORT", "8787"))
-    srv_port = int(os.environ.get("SERVER_PORT", "8789"))
+    srv_port_str = os.environ.get("SERVER_PORT", "").strip()
+    if not srv_port_str:
+        sp_file = os.path.join(ws_dir, "run", "server_port")
+        if os.path.isfile(sp_file):
+            try:
+                with open(sp_file, "r", encoding="utf-8") as f:
+                    srv_port_str = f.readline().strip()
+            except Exception:
+                pass
+    srv_port = int(srv_port_str) if srv_port_str.isdigit() else 8789
     hosts = []
     if gw_host and gw_host not in ("127.0.0.1", "0.0.0.0"):
         hosts.append(gw_host)
@@ -668,12 +689,13 @@ def run_benchmark_suite(base_url: str) -> None:
         hw_header = f"{BOLD}{cpu}{RESET} ({ram} RAM | {hp})"
         hw_scorecard = f"{cpu} ({ram} RAM, {hp})"
     else:
+        cpu, ram, hp = "Remote CPU Host", "Remote RAM", "Remote"
         hw_header = f"{BOLD}Remote Endpoint{RESET} (run './modchip bench' on the server host for CPU/THP info)"
         hw_scorecard = f"Remote ({base_url} — run './modchip bench' on server host for CPU/THP info)"
     aff_header = get_server_affinity_summary(base_url)
-    raw_model, model_display, _ = detect_active_model(base_url)
+    raw_model, model_display, prompt_label = detect_active_model(base_url)
     print(f"\n{BOLD}{CYAN}╔════════════════════════════════════════════════════════════════════════════════════╗{RESET}")
-    print(f"{BOLD}{CYAN}║ ♟️  llama-modchip v2.5.3 — Automated 2-Stage CPU Benchmark Suite                    ║{RESET}")
+    print(f"{BOLD}{CYAN}║ ♟️  llama-modchip v2.5.4 — Automated 2-Stage CPU Benchmark Suite                    ║{RESET}")
     print(f"{BOLD}{CYAN}╚════════════════════════════════════════════════════════════════════════════════════╝{RESET}")
     print(f"  • Hardware : {hw_header}")
     if aff_header:
@@ -725,7 +747,7 @@ def run_benchmark_suite(base_url: str) -> None:
         ).strip()
     except Exception:
         pass
-    ver_tag = f"v2.5.3 ({git_rev})" if git_rev else "v2.5.3"
+    ver_tag = f"v2.5.4 ({git_rev})" if git_rev else "v2.5.4"
     banner_text = f"LLAMA-MODCHIP {ver_tag} BENCHMARK SCORECARD"
     vis_w = sum(2 if ord(ch) > 0xFFFF else 1 for ch in banner_text)
     banner_line = f"║ {banner_text}{' ' * max(1, 83 - vis_w)}║"
@@ -775,22 +797,31 @@ def run_benchmark_suite(base_url: str) -> None:
     print(f"Submit scorecard (1-click pre-filled): {CYAN}https://github.com/synchopate/llama-modchip/issues/new?{q_params}{RESET}\n")
 
 
-DEFAULT_CHAT_SYSTEM_PROMPT = (
-    "Sei DeepSeek-V4-Flash (284B MoE / 13.2B parametri attivi per token, 43 layer ibridi MLA + Shared/Routed MoE), "
-    "eseguito localmente su CPU AMD Ryzen 9 9955HX (16 core fisici Zen 5, AVX-512 VBMI + VNNI) tramite il motore llama-modchip "
-    "con quantizzazione ibrida chirurgica Fractal-64 (3.75 bpw per attenzione MLA, zero doppia quantizzazione) + LUT-VQ3-64 "
-    "(3.00 bpw con codebook non uniforme a 8 livelli ottimizzato Lloyd-Max per gli esperti interior pre-SiLU), "
-    "RouteCrack-KV HARP-Cache in /dev/shm e speculative decoding Stockfish-PVS. "
-    "Rispondi sempre in italiano (salvo diversa richiesta esplicita) in modo naturale, cortese, tecnicamente rigoroso e conciso."
-)
+def build_chat_system_prompt(model_display: str, hw_summary: str) -> str:
+    custom = os.environ.get("MODCHIP_SYSTEM_PROMPT", "").strip()
+    if custom:
+        return custom
+    clean_model = re.sub(r"\x1b\[[0-9;]*m", "", model_display).strip() or "a local language model"
+    return (
+        f"You are {clean_model}, running locally via the llama-modchip inference engine ({hw_summary}). "
+        "Reply in the same language as the user's message with clear, technically accurate, and concise answers."
+    )
 
 
 def run_interactive_chat(base_url: str, one_shot_prompt: Optional[str] = None) -> None:
-    cpu, ram, hp = get_host_summary()
+    if _is_local_url(base_url):
+        cpu, ram, hp = get_host_summary()
+        hw_summary = f"{cpu}, {ram} RAM"
+        hw_banner = f"{BOLD}{cpu}{RESET} ({ram} RAM | {hp})"
+    else:
+        cpu, ram, hp = "Remote Endpoint", "", ""
+        hw_summary = f"remote endpoint {base_url}"
+        hw_banner = f"{BOLD}Remote Endpoint{RESET} ({base_url})"
     raw_model, model_display, prompt_label = detect_active_model(base_url)
+    sys_prompt = build_chat_system_prompt(model_display, hw_summary)
     if one_shot_prompt:
         msgs = [
-            {"role": "system", "content": DEFAULT_CHAT_SYSTEM_PROMPT},
+            {"role": "system", "content": sys_prompt},
             {"role": "user", "content": one_shot_prompt},
         ]
         stats = stream_chat_turn(base_url, msgs, max_tokens=512, think_budget=0, quiet=False)
@@ -798,15 +829,15 @@ def run_interactive_chat(base_url: str, one_shot_prompt: Optional[str] = None) -
         return
 
     print(f"{BOLD}{CYAN}╔════════════════════════════════════════════════════════════════════════════════════╗{RESET}")
-    print(f"{BOLD}{CYAN}║ ♟️  llama-modchip v2.5.3 — Interactive CPU Chat + Live Stockfish-PVS Telemetry      ║{RESET}")
+    print(f"{BOLD}{CYAN}║ ♟️  llama-modchip v2.5.4 — Interactive CPU Chat + Live Stockfish-PVS Telemetry      ║{RESET}")
     print(f"{BOLD}{CYAN}╚════════════════════════════════════════════════════════════════════════════════════╝{RESET}")
-    print(f"  • Hardware : {BOLD}{cpu}{RESET} ({ram} RAM | {hp})")
+    print(f"  • Hardware : {hw_banner}")
     print(f"  • Model    : {BOLD}{GREEN}{model_display}{RESET}")
     print(f"  • Endpoint : {CYAN}{base_url}{RESET}")
     print(f"  • Commands : {YELLOW}/bench{RESET} │ {YELLOW}/think no|med|max{RESET} │ {YELLOW}/model{RESET} │ {YELLOW}/reset{RESET} │ {YELLOW}/exit{RESET}\n")
 
     messages: List[Dict[str, str]] = [
-        {"role": "system", "content": DEFAULT_CHAT_SYSTEM_PROMPT}
+        {"role": "system", "content": sys_prompt}
     ]
     think_budget = 0
 
@@ -823,11 +854,14 @@ def run_interactive_chat(base_url: str, one_shot_prompt: Optional[str] = None) -
             break
         if user_in.lower() in ("/reset", "/clear"):
             messages.clear()
-            messages.append({"role": "system", "content": DEFAULT_CHAT_SYSTEM_PROMPT})
+            messages.append({"role": "system", "content": sys_prompt})
             print(f"{DIM}[Context cleared]{RESET}\n")
             continue
         if user_in.lower() in ("/model", "/status"):
             raw_model, model_display, prompt_label = detect_active_model(base_url)
+            sys_prompt = build_chat_system_prompt(model_display, hw_summary)
+            if messages and messages[0].get("role") == "system":
+                messages[0]["content"] = sys_prompt
             print(f"{DIM}[Active Model: {model_display} | Raw: {raw_model} | Endpoint: {base_url}]{RESET}\n")
             continue
         if user_in.lower() == "/bench":
@@ -854,7 +888,7 @@ def run_interactive_chat(base_url: str, one_shot_prompt: Optional[str] = None) -
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="llama-modchip v2.5.3 Interactive Terminal Chat & Benchmark Client")
+    parser = argparse.ArgumentParser(description="llama-modchip v2.5.4 Interactive Terminal Chat & Benchmark Client")
     parser.add_argument("--url", default=None, help="Server or Gateway base URL (auto-detected by default)")
     parser.add_argument("--bench", action="store_true", help="Run the 2-stage benchmark suite and print shareable scorecard")
     parser.add_argument("-p", "--prompt", default=None, help="Send a single prompt, stream output, print tok/s, and exit")

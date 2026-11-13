@@ -34,7 +34,7 @@ Live measurements on a single **AMD Ryzen 9 9955HX** (16 Zen 5 physical cores, 6
 | **Warm Interactive TTFT (LCP + HARP-Cache hit)** | **`0.16 – 0.50 s`** | Evaluates only the ~35–50 new user delta tokens |
 | **End-to-End Autonomous `<tool_call>` Turn** | **`1.88 – 2.45 s total`** | `426 ms` prompt eval + `34.52 tok/s` XML/JSON tool generation (`mean len = 4.18`) |
 | **Cold Prompt Prefill Throughput** | **`165.2 – 241.0 tok/s`** | Up to **306.8 tok/s** peak at `-b 2048` |
-| **Decode — Base Physical Floor (No Speculation)** | **`17.2 tok/s`** *(at 33K ctx)* / **`22.4–32.7 tok/s`** *(short ctx)* | High-entropy free prose where certainty gate halts drafting |
+| **Decode — Base Physical Floor (No Speculation)** | **`17.2 tok/s`** *(at 33K ctx)* / **`25.3–32.7 tok/s`** *(short ctx, opt-in `Top-K=4`)* | High-entropy free prose where certainty gate halts drafting (`v2.5.2+` defaults to unpruned `Top-6`) |
 | **Decode — Technical Prose + Security Audit (`27K` ctx)** | **`18.76 – 20.9 tok/s`** *(Peak **`39.28 tok/s`**)* | **`85.00%`** `Stockfish-PVS v2` draft acceptance (`mean len = 2.48–2.68`) |
 | **Decode — Agent `<tool_call>` / JSON / XML (`22.3K` ctx)** | **`28.0 – 34.52 tok/s`** | **`83.33%`** draft acceptance (`mean len = 4.18`) |
 | **Decode — Mixed Code & Architecture Refactor (`26.4K` ctx)** | **`28.61 tok/s` avg / `48.47 tok/s` peak** | **`86.10%`** draft acceptance (`mean len = 4.66`) |
@@ -102,7 +102,7 @@ Yes. **Nemotron 3.5 30B-A3B** works well with **Tensor-Role Offloading** (`--n-c
 4. **Backend Compatibility for Custom Quantization Formats (`MXFP4` vs `Fractal-64` vs `LUT-VQ3-64`)**:
    > [!IMPORTANT]
    > - **For Vulkan or CUDA GPU+CPU Hybrids**: Use **`Fractal-MXFP4` (`15.95 GiB`)** or **`Q4_0` (`17.60 GiB`)** — both have native Vulkan and CUDA compute shaders plus fast CPU kernels.
-   > - **For Apple Silicon Metal**: Use **`Fractal-64` (`GGML_TYPE_Q2_0 = 42`, `14.36 GiB` / `56.57 GiB`)** or **`Q4_0`** — `patches/apple-silicon/` and `patches/nemotron-apple-silicon/` ([PR #24](https://github.com/synchopate/llama-modchip/pull/24)) provide native Metal fast-decode shaders for `Q2_0` (`57.65 tok/s` M1 Max, `78.60 tok/s` M3 Max, `72.5 tok/s` M4 Max).
+   > - **For Apple Silicon Metal**: Use **`Fractal-64` (`GGML_TYPE_Q2_0 = 42`, `14.36 GiB` / `56.57 GiB`)** on `16–24 GB` Macs (saves `-3.24 GiB` unified RAM so long context fits without swap) or **`Q4_0` (`17.60 GiB`)** on `36 GB+` Macs (`patches/apple-silicon/` and `patches/nemotron-apple-silicon/` in [PR #24](https://github.com/synchopate/llama-modchip/pull/24) reach `57.65 tok/s` M1 Max, `78.60 tok/s` M3 Max, `72.5 tok/s` M4 Max in `Fractal-64`, while `Q4_0` runs ~8% faster at `77.95 tok/s` when unified memory is unconstrained, [#16](https://github.com/synchopate/llama-modchip/issues/16)).
    > - **For x86-64 Pure CPU**: Use **`LUT-VQ3-64` (`GGML_TYPE_VQ3_0 = 43`, `13.30 GiB` / `56.40 GiB`)** on AVX-512 VBMI CPUs (Zen 4/5, Ice Lake+) for lowest RAM footprint, or **`Fractal-64` (`Q2_0 = 42`)** on AVX2-only CPUs. Neither `Q2_0` nor `VQ3_0` has a Vulkan/CUDA GPU shader yet.
 
 ---
@@ -112,7 +112,7 @@ Yes. **Nemotron 3.5 30B-A3B** works well with **Tensor-Role Offloading** (`--n-c
 1. **Runtime Profiler & Controller (`scripts/llama_modchip.py`)**:
    [`scripts/llama_modchip.py`](scripts/llama_modchip.py) parses any `.gguf` binary header in `< 5 ms`, detects whether the model is a **Hybrid SSM+GQA** (`ssm_layers > 0`) or a **Pure GQA Transformer** (`ssm_layers == 0`) and whether it is a **Sparse MoE** (`expert_count > 1`) or **Dense**, sizes `LLAMA_KV_L3_WINDOW` dynamically so hot KV occupies $\le 25\%$ of L3 cache, applies architecture safety locks (`LLAMA_SWA_STRIDE=4` on Pure GQA; locking MoE Top-K pruning on Dense models; skipping `LLAMA_MOE_TOP_K` env export on `deepseek4` hash-routed layers), and writes `0600` live runtime controls to per-UID `/dev/shm/llama_modchip_<uid>.bin` (`$XDG_RUNTIME_DIR/llama_modchip.bin`).
 2. **Why `LLAMA_MOE_TOP_K=4` (`6->4` / `8->4`) Succeeds While `Top-K=2` Fails**:
-   - In `Nemotron-3.5-30B-A3B`, the model activates `6` routed experts (`ffn=1856`) + `1` double-width shared expert (`ffn=3712` = 2 expert-units) with `expert_weights_norm = True` and `expert_weights_scale = 2.5`. Pruning routed experts from `6 -> 4` cuts **33.3% of routed MoE DRAM bandwidth** while renormalizing the surviving 4 gates ($\sum_{i=1}^4 g_i = 2.5$).
+   - In `Nemotron-3.5-30B-A3B`, the model activates `6` routed experts (`ffn=1856`) + `1` double-width shared expert (`ffn=3712` = 2 expert-units) with `expert_weights_norm = True` and `expert_weights_scale = 2.5` (`v2.5.2+` runs unpruned `Top-6` by default; `Top-4` is opt-in via `LLAMA_MOE_TOP_K=4` at server boot). Pruning routed experts from `6 -> 4` cuts **33.3% of routed MoE DRAM bandwidth** while renormalizing the surviving 4 gates ($\sum_{i=1}^4 g_i = 2.5$).
    - On `Qwen3-30B-A3B` (`8 -> 4` routed experts, `norm_w = true` in `src/models/qwen3moe.cpp`), `LLAMA_MOE_TOP_K=4` cuts **50% of routed MoE DRAM traffic**, boosting non-speculative `tg64` decode from **`25.12` to `34.80 tok/s` (`+38.5%`)**.
    - Dropping to `LLAMA_MOE_TOP_K=2` collapses the directional covariance spectrum of the FFN output across 52 blocks (see [`ARCHITECTURE.md` §5.1](ARCHITECTURE.md)).
 
@@ -123,7 +123,7 @@ Yes. **Nemotron 3.5 30B-A3B** works well with **Tensor-Role Offloading** (`--n-c
 On Dual-Channel DDR5-5600 (`~71.7 GB/s` sustained multi-core read bandwidth on Ryzen 9 9955HX):
 
 ### 1. Short Context ($0\text{ MB}$ KV Cache)
-At $N=1$ decode on `Q4_0`, each token reads **~1.80 GB** of active weights (`~1.4–1.5 GB` in `Fractal-64` / `LUT-VQ3-64`). Stock `llama.cpp` stalls at **`17.0 tok/s`** (`58.8 ms/tok`) due to `4KB` page-table walks (`14.6M` L2 STLB misses/sec) and cross-CCD snoops. Enabling **2MB Transparent HugePages (`MADV_HUGEPAGE`)** (`6.14 GB` L2 STLB coverage), **AVX-512 kernels**, and 1:1 physical core pinning lifts pure $N=1$ decode to **`22.4–32.7 tok/s`**.
+At $N=1$ decode on `Q4_0`, each token reads **~1.80 GB** of active weights (`~1.4–1.5 GB` in `Fractal-64` / `LUT-VQ3-64`). Stock `llama.cpp` stalls at **`17.0 tok/s`** (`58.8 ms/tok`) due to `4KB` page-table walks (`14.6M` L2 STLB misses/sec) and cross-CCD snoops. Enabling **2MB Transparent HugePages (`MADV_HUGEPAGE`)** (`6.14 GB` L2 STLB coverage), **AVX-512 kernels**, and 1:1 physical core pinning lifts pure $N=1$ decode (with opt-in `LLAMA_MOE_TOP_K=4` router truncation; `24.18–26.08 tok/s` unpruned `Top-6` Served Gate decode) to **`25.3–32.7 tok/s`**.
 
 ### 2. Full 256K (`262,144` Tokens)
 At **262,144 tokens**, the 6-layer GQA KV cache occupies **`384 MB` raw / `432 MB` in `Q4_0` or dynamic EAKV** (`624 MB` in static `-ctk q8_0 -ctv q4_0`), which is $16.4\times$ smaller than a 48-layer GQA model (`7.08 GB`) but still larger than the `64 MB` Zen 5 L3 cache:

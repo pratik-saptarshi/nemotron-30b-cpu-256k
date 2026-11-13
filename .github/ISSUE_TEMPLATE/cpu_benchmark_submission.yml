@@ -40,12 +40,15 @@ body:
     attributes:
       label: "Model / Tool Tested"
       options:
-        - "DeepSeek-V4-Flash-0731-Abliterated-Fractal (284.33B Total / 13.17B Active, 56.93 GiB — Default DeepSeek)"
+        - "DeepSeek-V4-Flash-0731-MaxQ-Fractal (284.33B Total / 13.17B Active, 56.93 GiB — Aligned Default 284B)"
         - "DeepSeek-V4-Flash-0731-VQ3 (284.33B Total / 13.17B Active, 56.40 GiB)"
         - "DeepSeek-V4-Flash-0731-Fractal (284.33B Total / 13.17B Active, 56.57 GiB)"
-        - "NVIDIA-Nemotron-3.5-30B-A3B-VQ3-64 (30.2B Total / 3.0B Active, 13.30 GiB)"
+        - "DeepSeek-V4-Flash-0731-Abliterated-Fractal (284.33B Total / 13.17B Active, 56.93 GiB — Opt-In Uncensored)"
+        - "NVIDIA-Nemotron-3.5-30B-A3B-VQ3-64 (30.2B Total / 3.0B Active, 13.30 GiB — Aligned Default 30B)"
         - "NVIDIA-Nemotron-3.5-30B-A3B-Fractal-64 (30.2B Total / 3.0B Active, 14.36 GiB)"
         - "NVIDIA-Nemotron-3.5-30B-A3B-Fractal-MXFP4 (15.95 GiB)"
+        - "NVIDIA-Nemotron-3.5-30B-A3B-Q4_0 (17.60 GiB)"
+        - "NVIDIA-Nemotron-3.5-30B-A3B-Abliterated-VQ3-64 (13.30 GiB — Opt-In Uncensored)"
         - "Qwen3-30B-A3B / Qwen3-14B"
         - "2-Second CPU Readiness Check (check_cpu_readiness.py)"
     validations:

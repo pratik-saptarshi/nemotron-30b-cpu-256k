@@ -22,6 +22,7 @@ import glob
 import json
 import math
 import os
+import platform
 import re
 import shlex
 import shutil
@@ -51,6 +52,23 @@ SHM_MAGIC = 0x4D4F4443  # "MODC"
 SHM_VERSION = 1
 
 
+def _detect_workspace_dir() -> str:
+    env_ws = os.environ.get("WORKSPACE_DIR", "").strip()
+    if env_ws:
+        return env_ws
+    repo_root = os.path.dirname(_SCRIPTS_DIR)
+    ws_marker = os.path.join(repo_root, ".modchip_workspace")
+    if os.path.isfile(ws_marker):
+        try:
+            with open(ws_marker, "r", encoding="utf-8") as f:
+                saved = f.readline().strip()
+                if saved:
+                    return saved
+        except OSError:
+            pass
+    return os.path.join(repo_root, "workspace")
+
+
 def get_shm_paths(primary_path: str = SHM_PATH) -> List[str]:
     paths: List[str] = []
     custom = os.environ.get("MODCHIP_SHM_PATH", "").strip()
@@ -61,8 +79,18 @@ def get_shm_paths(primary_path: str = SHM_PATH) -> List[str]:
         p = os.path.join(xdg, "llama_modchip.bin")
         if p not in paths:
             paths.append(p)
-    if primary_path not in paths:
-        paths.append(primary_path)
+    if os.path.isdir("/dev/shm") and os.access("/dev/shm", os.W_OK):
+        if primary_path not in paths:
+            paths.append(primary_path)
+    if not paths:
+        # Fallback for macOS / minimal containers without /dev/shm or XDG_RUNTIME_DIR
+        ws_run = os.path.join(_detect_workspace_dir(), "run", f"modchip-{_EUID}")
+        try:
+            os.makedirs(ws_run, mode=0o700, exist_ok=True)
+            os.chmod(ws_run, 0o700)
+        except OSError:
+            pass
+        paths.append(os.path.join(ws_run, "llama_modchip.bin"))
     return paths
 
 # GGUF value type IDs
@@ -590,16 +618,16 @@ def _build_hacks_list(
         ),
         HackItem(
             2, "ccd_pinning", "1:1 Physical Core Pinning + Single-Pass KV Scan",
-            "LIVE-SHM", "SAFE", chunk_off,
+            "BOOT", "SAFE", chunk_off,
             (
-                f"{ccd_state} (-t {hw.decode_threads} decode / -tb {hw.batch_threads} prefill, {hw.num_ccds} CCDs)"
+                f"BOOT ({ccd_state}: -t {hw.decode_threads} decode / -tb {hw.batch_threads} prefill, {hw.num_ccds} CCDs)"
                 if hw.decode_threads != hw.batch_threads
-                else f"{ccd_state} ({hw.batch_threads} phys cores: {hw.taskset_mask[:36]}, {hw.num_ccds} CCDs)"
+                else f"BOOT ({ccd_state}: {hw.batch_threads} phys cores {hw.taskset_mask[:30]}, {hw.num_ccds} CCDs)"
             ),
             (
-                f"Multi-CCD Guard ({hw.num_ccds} CCDs): caps decode to {hw.decode_threads} threads ({hw.omp_proc_bind}); [SPACE] toggles KV chunking."
+                f"Multi-CCD Guard ({hw.num_ccds} CCDs): caps decode to {hw.decode_threads} threads ({hw.omp_proc_bind}) at startup."
                 if hw.decode_threads != hw.batch_threads
-                else "Prevents SMT sibling contention & multi-chunk KV merge overhead; [SPACE] toggles KV chunking."
+                else "Applied at server launch: pins 1 thread/physical core and static Dual-CCD KV partitioning."
             )
         ),
         HackItem(
@@ -651,7 +679,7 @@ def _build_hacks_list(
         ),
         HackItem(
             9, "moe_pruning", "Norm-Preserving Dynamic MoE Top-K Expert Pruning",
-            "LIVE-SHM", moe_safety, moe_enabled,
+            "BOOT", moe_safety, moe_enabled,
             moe_val,
             moe_reason
         ),
@@ -898,7 +926,10 @@ def write_modchip_shm(prof: ModchipProfile, shm_path: str = SHM_PATH) -> List[st
 
 
 def _detect_default_server_bin() -> str:
+    ws_dir = _detect_workspace_dir()
     candidates = [
+        os.path.join(ws_dir, "bin", "llama-server-nemotron"),
+        os.path.join(ws_dir, "llama.cpp", "build", "bin", "llama-server"),
         "./workspace/bin/llama-server-nemotron",
         "./workspace/llama.cpp/build/bin/llama-server",
         "./build/bin/llama-server",
@@ -908,7 +939,28 @@ def _detect_default_server_bin() -> str:
     for c in candidates:
         if os.path.isfile(c) and os.access(c, os.X_OK):
             return c
-    return shutil.which("llama-server") or "./workspace/bin/llama-server-nemotron"
+    return shutil.which("llama-server") or os.path.join(ws_dir, "bin", "llama-server-nemotron")
+
+
+def _get_avail_ram_gib(total_gib: float) -> float:
+    try:
+        with open("/proc/meminfo", "r", encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("MemAvailable:"):
+                    return int(line.split()[1]) / (1024.0 * 1024.0)
+    except OSError:
+        pass
+    return total_gib
+
+
+def _has_large_shm() -> bool:
+    if not os.path.isdir("/dev/shm") or not os.access("/dev/shm", os.W_OK):
+        return False
+    try:
+        st = os.statvfs("/dev/shm")
+        return (st.f_bavail * st.f_frsize) >= (1024 ** 3)
+    except OSError:
+        return False
 
 
 def build_launch_command(
@@ -917,6 +969,7 @@ def build_launch_command(
     port: int = 8789,
 ) -> str:
     resolved_bin = server_bin or _detect_default_server_bin()
+    ws_dir = _detect_workspace_dir()
     env_parts = [
         f"LLAMA_ATTN_WINDOW={prof.attn_window}",
         f"LLAMA_ATTN_SINKS={prof.attn_sinks}",
@@ -928,7 +981,24 @@ def build_launch_command(
         f"LLAMA_RC_CERT_D1={prof.rc_cert_d1}",
         f"LLAMA_RC_CERT_D2={prof.rc_cert_d2}",
     ]
-    if prof.moe_top_k > 0 and prof.model.arch != "deepseek4":
+    if prof.model.arch == "deepseek4":
+        xdg = os.environ.get("XDG_RUNTIME_DIR", "").strip()
+        priv_base = xdg if (xdg and os.path.isdir(xdg) and os.access(xdg, os.W_OK)) else os.path.join(ws_dir, "run")
+        priv_run = os.path.join(priv_base, f"modchip-{_EUID}")
+        dsv4_cfg = os.environ.get("DSV4_MOE_CFG_PATH", "").strip() or os.path.join(priv_run, "dsv4_moe_cfg.bin")
+        try:
+            os.makedirs(priv_run, mode=0o700, exist_ok=True)
+            os.chmod(priv_run, 0o700)
+            if not os.path.exists(dsv4_cfg):
+                fd = os.open(dsv4_cfg, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                try:
+                    os.write(fd, struct.pack("<8i", 6, 6, 0, 3, 43, 1, 0, 0))
+                finally:
+                    os.close(fd)
+        except OSError:
+            pass
+        env_parts.insert(0, f"DSV4_MOE_CFG_PATH={shlex.quote(dsv4_cfg)}")
+    elif prof.moe_top_k > 0:
         env_parts.insert(0, f"LLAMA_MOE_TOP_K={prof.moe_top_k}")
     env_parts.append(f"OMP_PROC_BIND={prof.hw.omp_proc_bind}")
     env_parts.append("OMP_PLACES=cores")
@@ -936,23 +1006,39 @@ def build_launch_command(
     t_dec = prof.hw.decode_threads
     t_bat = prof.hw.batch_threads
     ctx_target = min(prof.model.context_length, 262144) if prof.model.context_length > 0 else 262144
-    cmd_parts = [
-        " ".join(env_parts),
-        f"taskset -c {prof.hw.taskset_mask}",
+    ubatch = 2048
+    slot_save_dir = "/dev/shm" if _has_large_shm() else os.path.join(ws_dir, "cache")
+
+    if prof.model.arch == "deepseek4" and prof.hw.ram_total_gib < 80.0:
+        avail_gib = _get_avail_ram_gib(prof.hw.ram_total_gib)
+        if avail_gib < 64.0 or prof.hw.ram_total_gib <= 68.0:
+            ctx_target = min(ctx_target, 32768)
+            ubatch = 512
+            slot_save_dir = os.path.join(ws_dir, "cache")
+    elif prof.hw.ram_total_gib <= 18.0:
+        ctx_target = min(ctx_target, 32768)
+        ubatch = 512
+        slot_save_dir = os.path.join(ws_dir, "cache")
+
+    load_mode = "mmap" if platform.system() == "Darwin" else "none"
+    cmd_parts = [" ".join(env_parts)]
+    if shutil.which("taskset") and prof.hw.taskset_mask:
+        cmd_parts.append(f"taskset -c {prof.hw.taskset_mask}")
+    cmd_parts.extend([
         shlex.quote(resolved_bin),
         f"--model {shlex.quote(prof.model.path)}",
         f"--host 127.0.0.1 --port {port} --no-webui --offline",
         f"-c {ctx_target} -np 1",
         f"-t {t_dec} -tb {t_bat}",
-        "-cb -ub 2048 -b 2048 --flash-attn auto",
-    ]
+        f"-cb -ub {ubatch} -b 2048 --flash-attn auto --load-mode {load_mode}",
+    ])
     if prof.use_eakv:
         ctv = "q8_0" if prof.model.arch == "deepseek4" else "q4_0"
         cmd_parts.append(f"--cache-type-k q8_0 --cache-type-v {ctv}")
     if prof.use_repack:
         cmd_parts.append("--repack")
-    cmd_parts.append("--cache-reuse 256 --slot-save-path /dev/shm")
-    if prof.model.is_hybrid_ssm:
+    cmd_parts.append(f"--cache-reuse 256 --slot-save-path {shlex.quote(slot_save_dir)}")
+    if prof.model.is_hybrid_ssm or prof.model.arch == "deepseek4":
         cmd_parts.append("--ctx-checkpoints 64 --checkpoint-min-step 128")
     if prof.rc_enabled:
         cmd_parts.append(
@@ -980,7 +1066,7 @@ def print_profile_report(prof: ModchipProfile) -> None:
     m = prof.model
     hw = prof.hw
     print("┌" + "─" * 98 + "┐")
-    print(f"│ {'llama-modchip v2.5.3 — CPU GGUF Hardware & Topology Profiler':<96} │")
+    print(f"│ {'llama-modchip v2.5.4 — CPU GGUF Hardware & Topology Profiler':<96} │")
     print("├" + "─" * 98 + "┤")
     print(f"│ [HARDWARE] CPU: {hw.cpu_model[:44]:<44} | CCDs: {hw.num_ccds}x{hw.l3_per_ccd_mb:.0f}MB L3 | RAM: {hw.ram_total_gib:.0f} GiB │")
     print(f"│ [ISA/THP]  Flags: {', '.join(hw.isa_flags):<42} | THP: {hw.thp_mode:<10} | Cores: {len(hw.physical_core_cpus):<6} │")
@@ -1030,8 +1116,10 @@ def _detect_default_port() -> int:
             return int(env_p)
         except ValueError:
             pass
+    ws_dir = _detect_workspace_dir()
     repo_root = os.path.dirname(_SCRIPTS_DIR)
     for pf in (
+        os.path.join(ws_dir, "run", "server_port"),
         os.path.join(repo_root, "workspace", "run", "server_port"),
         "./workspace/run/server_port",
     ):
@@ -1041,10 +1129,10 @@ def _detect_default_port() -> int:
                     return int(f.read().strip())
             except (OSError, ValueError):
                 pass
-    return 8080
+    return 8789
 
 
-def _poll_live_telemetry(port: int = 8080) -> str:
+def _poll_live_telemetry(port: int = 8789) -> str:
     """Reads live HugePages memory, SHM status, and llama-server /slots telemetry."""
     anon_hp_gib = 0.0
     try:
@@ -1099,7 +1187,9 @@ def _poll_live_telemetry(port: int = 8080) -> str:
 def _detect_bench_bin(user_bin: Optional[str] = None) -> Optional[str]:
     if user_bin and os.path.isfile(user_bin) and os.access(user_bin, os.X_OK):
         return user_bin
+    ws_dir = _detect_workspace_dir()
     candidates = [
+        os.path.join(ws_dir, "llama.cpp", "build", "bin", "llama-bench"),
         "./workspace/llama.cpp/build/bin/llama-bench",
         "./build/bin/llama-bench",
         "./build_zen5/bin/llama-bench",
@@ -1143,7 +1233,7 @@ def run_ab_benchmark(prof: ModchipProfile, bench_bin: Optional[str] = None) -> i
     native_top_k = m.expert_used_count if m.is_moe else 0
 
     print("\n" + "=" * 100)
-    print(f" RUNNING 1-COMMAND A/B BENCHMARK: Stock Baseline vs. llama-modchip v2.5.3 ({m.filename})")
+    print(f" RUNNING 1-COMMAND A/B BENCHMARK: Stock Baseline vs. llama-modchip v2.5.4 ({m.filename})")
     print("=" * 100)
 
     # 1. Baseline (Stock FP16 KV, Native Top-K, No SWA, No SHM override)
@@ -1159,8 +1249,8 @@ def run_ab_benchmark(prof: ModchipProfile, bench_bin: Optional[str] = None) -> i
     if native_top_k > 0 and m.arch != "deepseek4":
         base_env["LLAMA_MOE_TOP_K"] = str(native_top_k)
 
-    base_cmd = [
-        "taskset", "-c", hw.taskset_mask,
+    pin_prefix = ["taskset", "-c", hw.taskset_mask] if shutil.which("taskset") else []
+    base_cmd = pin_prefix + [
         resolved_bench,
         "-m", m.path,
         "-t", str(n_threads),
@@ -1182,8 +1272,7 @@ def run_ab_benchmark(prof: ModchipProfile, bench_bin: Optional[str] = None) -> i
         mod_env["LLAMA_MOE_TOP_K"] = str(prof.moe_top_k)
 
     ctv = "q8_0" if m.arch == "deepseek4" else "q4_0"
-    mod_cmd = [
-        "taskset", "-c", hw.taskset_mask,
+    mod_cmd = pin_prefix + [
         resolved_bench,
         "-m", m.path,
         "-t", str(n_threads),
@@ -1207,7 +1296,7 @@ def run_ab_benchmark(prof: ModchipProfile, bench_bin: Optional[str] = None) -> i
         print("| :--- | :---: | :---: | :--- |")
         print(f"| **Stock Baseline** | `{pp_a:.2f} tok/s` | `{tg_a:.2f} tok/s` | `Top-K={native_top_k or 'Dense'}`, `FP16 KV`, `No SWA` |")
         print(
-            f"| **`llama-modchip v2.5.3`** | **`{pp_b:.2f} tok/s` (`{pp_gain:+.1f}%`)** | "
+            f"| **`llama-modchip v2.5.4`** | **`{pp_b:.2f} tok/s` (`{pp_gain:+.1f}%`)** | "
             f"**`{tg_b:.2f} tok/s` (`{tg_gain:+.1f}%`)** | "
             f"`Top-K={prof.moe_top_k or native_top_k or 'Dense'}`, `SWA_STRIDE={prof.swa_stride}`, `L3_WIN={prof.l3_window}`, `Q8_0/{ctv.upper()}` |"
         )
@@ -1218,7 +1307,7 @@ def run_ab_benchmark(prof: ModchipProfile, bench_bin: Optional[str] = None) -> i
     return 0
 
 
-def run_tui(prof: ModchipProfile, port: int = 8080) -> None:
+def run_tui(prof: ModchipProfile, port: int = 8789) -> None:
     kv_bpt = max(prof.model.kv_bytes_per_tok_q8q4, 256)
     l3_budget_bytes = int(prof.hw.total_l3_bytes * 0.25)
     raw_l3_tokens = l3_budget_bytes // kv_bpt
@@ -1237,14 +1326,14 @@ def run_tui(prof: ModchipProfile, port: int = 8080) -> None:
         stdscr.timeout(1000)  # Refresh live telemetry every 1000ms
         stdscr.keypad(True)
         idx = 7  # Highlight #8 Sliding Window Attention by default
-        status_msg = "[SPACE] toggle LIVE-SHM item (#2,#5,#6,#8,#9) | [A] sync to SHM | [Q] quit ([BOOT] = startup flag)"
+        status_msg = "[SPACE] toggle LIVE-SHM item (#5,#6,#8) | [A] sync to SHM | [Q] quit ([BOOT] = startup flag)"
 
         while True:
             stdscr.erase()
             h, w = stdscr.getmaxyx()
             m = prof.model
             hw = prof.hw
-            stdscr.addstr(0, 0, f"=== llama-modchip v2.5.3 (Live SHM TUI) == Target: {m.filename} ==="[:w - 1], curses.A_BOLD)
+            stdscr.addstr(0, 0, f"=== llama-modchip v2.5.4 (Live SHM TUI) == Target: {m.filename} ==="[:w - 1], curses.A_BOLD)
             stdscr.addstr(1, 0, f"CPU: {hw.cpu_model} ({hw.num_ccds}x{hw.l3_per_ccd_mb:.0f}MB L3) | Arch: {m.arch_summary}"[:w - 1])
             stdscr.addstr(2, 0, "-" * min(w - 1, 96))
 
@@ -1284,7 +1373,7 @@ def run_tui(prof: ModchipProfile, port: int = 8080) -> None:
                 if sel.safety == "LOCKED":
                     status_msg = f"SAFETY LOCK: '{sel.title}' cannot be modified on {m.arch}!"
                 elif sel.tier == "BOOT":
-                    status_msg = f"BOOT-TIME FLAG: '{sel.title}' is set at llama-server launch (live toggles: #2,#5,#6,#8,#9)."
+                    status_msg = f"BOOT-TIME FLAG: '{sel.title}' is set at llama-server launch (live toggles: #5,#6,#8)."
                 else:
                     new_on = not sel.enabled
                     if sel.key == "l3_isolation":

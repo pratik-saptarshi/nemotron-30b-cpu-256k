@@ -225,6 +225,15 @@ void vec_dot_vq3_0_q8_0(int n, float * restrict s, const block_vq3_0 * restrict 
     *s = _mm512_reduce_add_ps(acc0);
 }
 
+static uint64_t unpack_scales_portable_ref(uint32_t s24) {
+    uint64_t m_all = 0;
+    for (int b = 0; b < 8; ++b) {
+        uint64_t m = 2ULL + ((uint64_t)((s24 >> (3 * b)) & 0x7U));
+        m_all |= (m << (8 * b));
+    }
+    return m_all;
+}
+
 int main(void) {
     const int N = 4096;
     float * w = malloc(N * sizeof(float));
@@ -232,6 +241,19 @@ int main(void) {
     block_vq3_0 * b_vq3 = malloc((N / 64) * sizeof(block_vq3_0));
     block_q8_0  * b_q8  = malloc((N / 32) * sizeof(block_q8_0));
     float * y_rec = malloc(N * sizeof(float));
+    if (!w || !w_rec || !b_vq3 || !b_q8 || !y_rec) {
+        fprintf(stderr, "Allocation failed\n");
+        return 1;
+    }
+
+    /* Verify ggml_vq3_unpack_scales matches exact byte-by-byte reference on all 3-bit sub-scale values */
+    for (uint32_t p = 0; p < 65536U; ++p) {
+        uint32_t s24 = (p * 2654435761U) & 0xFFFFFFU;
+        if (ggml_vq3_unpack_scales(s24) != unpack_scales_portable_ref(s24)) {
+            fprintf(stderr, "Scale unpack mismatch on s24=0x%06x\n", s24);
+            return 1;
+        }
+    }
 
     for (int i = 0; i < N; ++i) {
         w[i] = sinf(i * 0.137f) * cosf(i * 0.031f) * 0.02f;
@@ -239,9 +261,10 @@ int main(void) {
     quantize_row_vq3_0_ref(w, b_vq3, N);
     dequantize_row_vq3_0(b_vq3, w_rec, N);
 
-    double sig = 0.0, err = 0.0;
+    double sig = 0.0, err = 0.0, sig_rec = 0.0, sig_y = 0.0;
     for (int i = 0; i < N; ++i) {
         sig += (double)w[i] * w[i];
+        sig_rec += (double)w_rec[i] * w_rec[i];
         double d = (double)w[i] - w_rec[i];
         err += d * d;
     }
@@ -254,6 +277,7 @@ int main(void) {
             int8_t q = (int8_t)((((b * 32 + j) * 19) % 251) - 125);
             b_q8[b].qs[j] = q;
             y_rec[b * 32 + j] = (float)q * d8;
+            sig_y += (double)y_rec[b * 32 + j] * y_rec[b * 32 + j];
         }
     }
 
@@ -263,7 +287,36 @@ int main(void) {
     double dot_ref = 0.0;
     for (int i = 0; i < N; ++i) dot_ref += (double)w_rec[i] * y_rec[i];
 
-    double rel_err = fabs((double)dot_avx512 - dot_ref) / fmax(fabs(dot_ref), 1e-12);
-    printf("dot_avx512 = %.8f | dot_ref = %.8f | rel_err = %.3e\n", dot_avx512, dot_ref, rel_err);
-    return (rel_err < 1e-6) ? 0 : 1;
+    /* Normalize by Cauchy-Schwarz L2 norm bound ||w_rec||*||y_rec|| to avoid near-zero cancellation bias */
+    double norm_denom = fmax(sqrt(sig_rec * sig_y), 1e-12);
+    double norm_err = fabs((double)dot_avx512 - dot_ref) / norm_denom;
+
+    /* Also verify strict relative error < 1e-6 on a correlated (non-cancelling) activation vector */
+    for (int b = 0; b < N / 32; ++b) {
+        b_q8[b].d = fp32_to_fp16(0.02f / 127.0f);
+        float d8 = fp16_to_fp32(b_q8[b].d);
+        for (int j = 0; j < 32; ++j) {
+            int idx = b * 32 + j;
+            int iv = (int)lrintf(w[idx] / (0.02f / 127.0f));
+            if (iv < -127) iv = -127;
+            if (iv > 127) iv = 127;
+            b_q8[b].qs[j] = (int8_t)iv;
+            y_rec[idx] = (float)iv * d8;
+        }
+    }
+    float dot_corr_avx = 0.0f;
+    vec_dot_vq3_0_q8_0(N, &dot_corr_avx, b_vq3, b_q8);
+    double dot_corr_ref = 0.0;
+    for (int i = 0; i < N; ++i) dot_corr_ref += (double)w_rec[i] * y_rec[i];
+    double rel_err = fabs((double)dot_corr_avx - dot_corr_ref) / fmax(fabs(dot_corr_ref), 1e-12);
+
+    printf("dot_avx512 = %.8f | dot_ref = %.8f | norm_err = %.3e | corr_rel_err = %.3e\n",
+           dot_avx512, dot_ref, norm_err, rel_err);
+
+    free(w);
+    free(w_rec);
+    free(b_vq3);
+    free(b_q8);
+    free(y_rec);
+    return (norm_err < 1e-7 && rel_err < 1e-6) ? 0 : 1;
 }

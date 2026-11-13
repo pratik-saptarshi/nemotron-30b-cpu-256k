@@ -136,7 +136,7 @@ function Ensure-LlamaBinaries($hw) {
     }
 
     Write-Host "`n[*] Prima esecuzione: scarico il motore llama.cpp ufficiale con accelerazione GPU..." -ForegroundColor Green
-    $headers = @{ "User-Agent" = "llama-modchip-windows/2.5.2" }
+    $headers = @{ "User-Agent" = "llama-modchip-windows/2.5.4" }
     $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=5" -Headers $headers
 
     $chosenRel = $null
@@ -194,7 +194,7 @@ $ModelCatalog = @(
     [PSCustomObject]@{
         Id          = 1
         Title       = "[CONSIGLIATO 16GB RAM] Qwen3-30B-A3B (Q3_K_M, 13.7 GiB) -- 30 Miliardi Sparse MoE"
-        Subtitle    = "Split Ibrido GPU+CPU: ~9.2 GB sulla RTX 2080 Ti + ~4.5 GB in RAM. Lascia Windows leggerissimo!"
+        Subtitle    = "Split Ibrido GPU+CPU: ~9.2 GB in VRAM (su GPU 11GB+) + ~4.5 GB in RAM. Lascia Windows leggerissimo!"
         FileName    = "Qwen3-30B-A3B-Q3_K_M.gguf"
         SizeBytes   = 14711847488
         SizeGB      = 13.7
@@ -208,7 +208,7 @@ $ModelCatalog = @(
     [PSCustomObject]@{
         Id          = 2
         Title       = "[LONG-CONTEXT 128K-256K] NVIDIA-Nemotron-3.5-30B-A3B (Q4_0, 17.6 GiB) -- 30B Mamba-2 + MoE"
-        Subtitle    = "Split Ibrido GPU+CPU: ~9.6 GB sulla RTX 2080 Ti + ~8.0 GB in RAM (chiudi il browser prima!)."
+        Subtitle    = "Split Ibrido GPU+CPU: ~9.6 GB in VRAM (su GPU 11GB+) + ~8.0 GB in RAM (chiudi il browser prima!)."
         FileName    = "NVIDIA-Nemotron-3.5-Lightning-30B-A3B-Q4_0.gguf"
         SizeBytes   = 18898091584
         SizeGB      = 17.6
@@ -221,8 +221,8 @@ $ModelCatalog = @(
     },
     [PSCustomObject]@{
         Id          = 3
-        Title       = "[100% GPU RTX 2080 Ti] Qwen3-14B (Q4_K_M, 8.4 GiB) -- 14 Miliardi Denso (0 GB RAM usata)"
-        Subtitle    = "Entra TUTTO negli 11 GB della RTX 2080 Ti (616 GB/s)! Velocita' ~50-58 tok/s, zero carico RAM."
+        Title       = "[100% GPU >=10GB VRAM] Qwen3-14B (Q4_K_M, 8.4 GiB) -- 14 Miliardi Denso (0 GB RAM usata)"
+        Subtitle    = "Entra 100% in VRAM su GPU >=10-11 GB! Velocita' elevata, zero carico sulla RAM di sistema."
         FileName    = "Qwen3-14B-Q4_K_M.gguf"
         SizeBytes   = 9001752960
         SizeGB      = 8.4
@@ -236,7 +236,7 @@ $ModelCatalog = @(
     [PSCustomObject]@{
         Id          = 4
         Title       = "[100% GPU TURBO 128K] NVIDIA-Nemotron-H-8B-Reasoning (Q8_0, 8.0 GiB) -- 100+ tok/s!"
-        Subtitle    = "Precisione 8-bit nativa, 128.000 token di contesto in soli 210 MB KV, 100% sulla RTX 2080 Ti!"
+        Subtitle    = "Precisione 8-bit nativa, 128.000 token di contesto in soli 210 MB KV, 100% in VRAM su GPU >=10 GB!"
         FileName    = "nvidia_Nemotron-H-8B-Reasoning-128K-Q8_0.gguf"
         SizeBytes   = 8619887584
         SizeGB      = 8.0
@@ -433,10 +433,10 @@ if ($helpOut -match "--load-mode") {
 }
 
 $specArgs = @("--spec-type", "ngram-simple")
-if ($helpOut -match "--spec-ngram-size-n") {
-    $specArgs += @("--spec-ngram-size-n", "3", "--spec-ngram-size-m", "5", "--draft-max", "6")
-} elseif ($helpOut -match "--spec-ngram-simple-size-n") {
+if ($helpOut -match "--spec-ngram-simple-size-n") {
     $specArgs += @("--spec-ngram-simple-size-n", "3", "--spec-ngram-simple-size-m", "5")
+} elseif ($helpOut -match "--spec-ngram-size-n" -and $helpOut -notmatch "--spec-ngram-size-n[^\r\n]*removed") {
+    $specArgs += @("--spec-ngram-size-n", "3", "--spec-ngram-size-m", "5", "--draft-max", "6")
 }
 
 $serverArgs = @(
@@ -507,7 +507,7 @@ if ($selectedModel.TotalMoe -gt 0) {
     Write-Host ("  - Offload GPU        : 100% su {0} (-ngl 99, 0 GB RAM di sistema)" -f $hw.GpuName) -ForegroundColor Cyan
 }
 Write-Host ("  - Thread CPU Fisici  : -t {0} (Evita HyperThreading per non saturare il bus DDR4)" -f $hw.PhysCores) -ForegroundColor White
-Write-Host "  - Speculative Engine : Draftless N-Gram Cascade (m=5, draft-max=6)" -ForegroundColor White
+Write-Host "  - Speculative Engine : Draftless N-Gram Cascade (n=3, m=5)" -ForegroundColor White
 Write-Host "--------------------------------------------------------------------------------" -ForegroundColor DarkGray
 Write-Host ("  -> Web Chat UI       : http://127.0.0.1:{0}  (Si aprira' nel browser appena pronto!)" -f $Port) -ForegroundColor Yellow
 Write-Host ("  -> OpenAI API Locale : http://127.0.0.1:{0}/v1 (Per VS Code Continue / Cline / Cursor)" -f $Port) -ForegroundColor Yellow

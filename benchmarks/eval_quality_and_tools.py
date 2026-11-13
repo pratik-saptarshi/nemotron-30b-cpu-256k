@@ -610,12 +610,19 @@ def main() -> int:
             cur_lp = cont_eval.collect_completion_logprobs(args.url)
             if args.save_logits:
                 os.makedirs(os.path.dirname(os.path.abspath(args.save_logits)), exist_ok=True)
+                snap_payload = {
+                    "metadata": {
+                        "label": args.label,
+                        "url": args.url,
+                        "n_probes": len(cur_lp),
+                    },
+                    "records": cur_lp,
+                }
                 with open(args.save_logits, "w", encoding="utf-8") as lf:
-                    json.dump(cur_lp, lf, indent=2)
+                    json.dump(snap_payload, lf, indent=2)
                 print(f"[+] Saved reference logit distributions to: {args.save_logits}")
             if args.ref_logits and os.path.isfile(args.ref_logits):
-                with open(args.ref_logits, "r", encoding="utf-8") as lf:
-                    ref_lp = json.load(lf)
+                ref_lp, _ = cont_eval.load_logits_snapshot(args.ref_logits)
                 kld_res = cont_eval.compute_kld_from_records(ref_lp, cur_lp)
                 continuous_metrics["kld"] = kld_res
                 print(

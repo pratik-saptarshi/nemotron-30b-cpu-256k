@@ -1,6 +1,8 @@
-param(
+﻿param(
     [switch]$Cuda,
     [switch]$Clean,
+    [switch]$EnableAvx512,
+    [switch]$DisableAvx512,
     [ValidateSet("dsv4", "nemotron")]
     [string]$Target = "dsv4",
     [string]$Arch = "89",
@@ -39,8 +41,8 @@ $BuildDir   = if ($Cuda) { Join-Path $LlamaDir "build-cuda" } else { Join-Path $
 function Fail([string]$Msg) { Write-Host "[!] $Msg" -ForegroundColor Red; exit 1 }
 
 Write-Host "================================================================================" -ForegroundColor Cyan
-Write-Host "  llama-modchip v2.5.3 Windows engine build (Fractal-64 Q2_0 + LUT-VQ3-64 VQ3_0)" -ForegroundColor Green
-Write-Host ("  Target : {0} | Backend: {1}" -f $Target, $(if ($Cuda) { "CUDA sm_$Arch + CPU (MSVC)" } else { "CPU AVX-512 (MinGW-w64)" })) -ForegroundColor Green
+Write-Host "  llama-modchip v2.5.4 Windows engine build (Fractal-64 Q2_0 + LUT-VQ3-64 VQ3_0)" -ForegroundColor Green
+Write-Host ("  Target : {0} | Backend: {1}" -f $Target, $(if ($Cuda) { "CUDA sm_$Arch + CPU (MSVC)" } else { "CPU Native SIMD (MinGW-w64)" })) -ForegroundColor Green
 Write-Host "================================================================================" -ForegroundColor Cyan
 
 $git = (Get-Command git.exe -ErrorAction SilentlyContinue).Source
@@ -96,16 +98,19 @@ try {
     }
 
     # --- Windows / MSVC portability fixes ------------------------------------
-    # 1) ops.cpp reads a Linux /dev/shm block; Windows uses the env vars instead.
-    Write-Host "[*] Applying Windows portability fixes ..." -ForegroundColor Cyan
+    # 1) ops.cpp reads a Linux /dev/shm block; both dsv4-ipc-hardening.patch and
+    #    zen5-nemotron-256k-optimizations.patch guard POSIX headers under #if defined(__linux__),
+    #    so only apply fallback guards if an older unguarded patch is in the tree.
+    Write-Host "[*] Verifying Windows portability guards in ops.cpp ..." -ForegroundColor Cyan
     $ops = Join-Path $LlamaDir "ggml\src\ggml-cpu\ops.cpp"
     $c = Get-Content -LiteralPath $ops -Raw
-    $c = $c -replace '(?m)^#if defined\(__AVX2__\) \|\| defined\(__AVX512F__\)\r?\n#include <sys/mman\.h>',
-                      "#if defined(__AVX2__) || defined(__AVX512F__)`r`n#ifndef _WIN32`r`n#include <sys/mman.h>"
-    $c = $c -replace '(?m)^#include <unistd\.h>\r?\n\r?\nstruct llama_modchip_shm_t',
-                      "#include <unistd.h>`r`n#endif`r`n`r`nstruct llama_modchip_shm_t"
-    $c = $c -replace '(?ms)^(        int fd = open\("/dev/shm/llama_modchip\.bin", O_RDONLY\);.*?^        \})',
-                      "#ifndef _WIN32`r`n`$1`r`n#endif"
+    if ($c -notmatch '#if defined\(__linux__\)\r?\n#include <sys/mman\.h>') {
+        $c = $c -replace '(?ms)(#include <sys/mman\.h>.*?#include <unistd\.h>)', "#if defined(__linux__)`r`n`$1`r`n#endif"
+    }
+    if ($c -match 'open\("/dev/shm/llama_modchip\.bin"') {
+        $c = $c -replace '(?ms)^(        int fd = open\("/dev/shm/llama_modchip\.bin", O_RDONLY\);.*?^        \})',
+                          "#if defined(__linux__)`r`n`$1`r`n#endif"
+    }
     Set-Content -LiteralPath $ops -Value $c -Encoding UTF8 -NoNewline
 
     # 2) quants.c: MSVC has no __builtin_ctz
@@ -205,11 +210,42 @@ static inline int mc_ctz32(unsigned int v) {
         }
         if (-not $cudaRoot) { Fail "CUDA Toolkit not found (winget install Nvidia.CUDA)." }
 
+        # Auto-detect AVX-512 support on the host CPU unless explicitly overridden so AVX2 PCs (Intel 12th-15th Gen, Zen 2/3)
+        # never crash with STATUS_ILLEGAL_INSTRUCTION when building -Cuda with MSVC (/arch:AVX512).
+        $useAvx512 = $false
+        if ($EnableAvx512) {
+            $useAvx512 = $true
+        } elseif (-not $DisableAvx512) {
+            try {
+                if (-not ("ModchipCpuCheck" -as [type])) {
+                    Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public static class ModchipCpuCheck {
+    [DllImport("kernel32.dll")]
+    public static extern bool IsProcessorFeaturePresent(uint feature);
+}
+"@
+                }
+                # PF_AVX512F_INSTRUCTIONS_AVAILABLE = 49 on Windows 10/11
+                $useAvx512 = [ModchipCpuCheck]::IsProcessorFeaturePresent(49)
+            } catch {
+                $useAvx512 = $false
+            }
+        }
+        $isaFlags = if ($useAvx512) {
+            Write-Host "[*] Host CPU supports AVX-512 — enabling MSVC AVX-512 + VBMI + VNNI kernels (pass -DisableAvx512 for portable AVX2)." -ForegroundColor Green
+            "-DGGML_AVX512=ON -DGGML_AVX512_VBMI=ON -DGGML_AVX512_VNNI=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON"
+        } else {
+            Write-Host "[*] Building MSVC CPU kernels for AVX2 + FMA + F16C (safe on Intel 12th-15th Gen & AMD Zen 2/3; pass -EnableAvx512 to force AVX-512)." -ForegroundColor Yellow
+            "-DGGML_AVX512=OFF -DGGML_AVX512_VBMI=OFF -DGGML_AVX512_VNNI=OFF -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON"
+        }
+
         $cmd = @"
 call "$vcvars" >nul 2>&1
 set "PATH=$cudaRoot\bin;%PATH%"
 cd /d "$LlamaDir"
-cmake -B "$BuildDir" -G Ninja -DCMAKE_BUILD_TYPE=Release -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=$Arch -DGGML_NATIVE=ON -DGGML_AVX512=ON -DGGML_AVX512_VBMI=ON -DGGML_AVX512_VNNI=ON -DGGML_OPENMP=OFF -DLLAMA_CURL=OFF -DLLAMA_BUILD_TESTS=OFF -DBUILD_SHARED_LIBS=OFF "-DCMAKE_EXE_LINKER_FLAGS=/STACK:16777216"
+cmake -B "$BuildDir" -G Ninja -DCMAKE_BUILD_TYPE=Release -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=$Arch -DGGML_NATIVE=OFF $isaFlags -DGGML_OPENMP=OFF -DLLAMA_CURL=OFF -DLLAMA_BUILD_TESTS=OFF -DBUILD_SHARED_LIBS=OFF "-DCMAKE_EXE_LINKER_FLAGS=/STACK:16777216"
 if errorlevel 1 exit /b 1
 cmake --build "$BuildDir" -j $jobs --target llama-server llama-cli llama-bench
 "@

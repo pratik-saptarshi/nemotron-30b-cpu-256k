@@ -898,7 +898,7 @@ index 0000000..375bbbe
 +#else
 +    uint64_t m_all = 0x0202020202020202ULL;
 +    for (int b = 0; b < 8; ++b) {
-+        m_all |= ((uint64_t)((s24 >> (3 * b)) & 0x7U)) << (8 * b);
++        m_all += ((uint64_t)((s24 >> (3 * b)) & 0x7U)) << (8 * b);
 +    }
 +    return m_all;
 +#endif
@@ -988,3 +988,24 @@ index fd6e787..061be27 100644
  
          case LLAMA_FTYPE_MOSTLY_MXFP4_MOE: return GGML_TYPE_MXFP4;
  
+diff --git a/tests/test-quantize-fns.cpp b/tests/test-quantize-fns.cpp
+index 9510ac1..7e41c2b 100644
+--- a/tests/test-quantize-fns.cpp
++++ b/tests/test-quantize-fns.cpp
+@@ -162,6 +162,7 @@ static int test_vec_dot_q(bool verbose) {
+                 type == GGML_TYPE_IQ2_S   ? MAX_QUANTIZATION_TOTAL_ERROR_2BITS :
+                 type == GGML_TYPE_Q3_K    ? MAX_QUANTIZATION_TOTAL_ERROR_3BITS :
+                 type == GGML_TYPE_IQ3_S   ? MAX_QUANTIZATION_TOTAL_ERROR_3BITS :
++                type == GGML_TYPE_VQ3_0   ? MAX_QUANTIZATION_TOTAL_ERROR_TERNARY :
+                 type == GGML_TYPE_IQ3_XXS ? MAX_QUANTIZATION_TOTAL_ERROR_3BITS_XXS :
+                 type == GGML_TYPE_NVFP4   ? MAX_QUANTIZATION_TOTAL_ERROR_FP4 : MAX_QUANTIZATION_TOTAL_ERROR;
+             bool failed = !(total_error < max_quantization_error);
+@@ -180,6 +181,8 @@ static int test_vec_dot_q(bool verbose) {
+             const float vec_dot_error = dot_product_error(qfns, qfns_cpu, test_size, test_data.data(), test_data2.data());
+             const float max_allowed_error = type == GGML_TYPE_Q2_K || type == GGML_TYPE_IQ2_XS || type == GGML_TYPE_IQ2_XXS ||
+                 type == GGML_TYPE_IQ3_XXS || type == GGML_TYPE_IQ3_S || type == GGML_TYPE_IQ2_S
+                 ? MAX_DOT_PRODUCT_ERROR_LOWBIT
++                : type == GGML_TYPE_VQ3_0
++                ? MAX_DOT_PRODUCT_ERROR_TERNARY
+                 : type == GGML_TYPE_Q1_0
+                 ? MAX_DOT_PRODUCT_ERROR_BINARY
